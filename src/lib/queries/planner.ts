@@ -192,9 +192,34 @@ export function usePlanner(userId: string) {
   })
 }
 
+/** The write API every backend (cloud or local demo) implements. */
+export interface PlannerActions {
+  toggleBlockLog(blockId: string, dateIso: string): Promise<void>
+  toggleHabitLog(habitId: string, dateIso: string): Promise<void>
+  addBlock(dow: number, position: number): Promise<string>
+  updateBlock(
+    id: string,
+    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored'>>,
+  ): Promise<void>
+  deleteBlock(id: string): Promise<void>
+  swapBlocks(a: Block, b: Block): Promise<void>
+  saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
+  deleteHabit(id: string): Promise<void>
+  saveBucket(bucket: { id?: string; name: string; cat: Cat; tasks: string[] }, position: number): Promise<void>
+  deleteBucket(id: string): Promise<void>
+  addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<void>
+  updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
+  swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
+  deleteDesignItem(id: string): Promise<void>
+  resetDesign(): Promise<void>
+  setWake(min: number): Promise<void>
+  setNotes(notes: string): Promise<void>
+  applyDesignToDay(dow: number, items: DesignItem[], wakeMin: number): Promise<void>
+}
+
 /** Imperative write API. Every action persists row-level changes, then
  *  invalidates the planner query; toggles patch the cache optimistically. */
-export function usePlannerActions(userId: string) {
+export function usePlannerActions(userId: string): PlannerActions {
   const qc = useQueryClient()
   const invalidate = () => qc.invalidateQueries({ queryKey: plannerKey })
   const patch = (fn: (data: PlannerData) => PlannerData) =>
@@ -412,5 +437,3 @@ export function usePlannerActions(userId: string) {
     },
   }
 }
-
-export type PlannerActions = ReturnType<typeof usePlannerActions>

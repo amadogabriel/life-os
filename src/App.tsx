@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useSession } from './lib/useSession'
+import { hasSupabaseEnv } from './lib/supabase'
 import { usePlanner, usePlannerActions, type PlannerData, type PlannerActions } from './lib/queries/planner'
+import { useDemoActions, useDemoPlanner } from './lib/queries/demo'
 import { SignIn } from './features/auth/SignIn'
 import { TodayView } from './features/today/TodayView'
 import { WeekView } from './features/week/WeekView'
@@ -20,17 +22,35 @@ export interface ViewProps {
 }
 
 export default function App() {
+  if (!hasSupabaseEnv) return <DemoPlanner />
+  return <CloudApp />
+}
+
+function CloudApp() {
   const { session, loading } = useSession()
   if (loading) return null
   if (!session) return <SignIn />
-  return <Planner userId={session.user.id} email={session.user.email ?? ''} />
+  return <CloudPlanner userId={session.user.id} email={session.user.email ?? ''} />
 }
 
-function Planner({ userId, email }: { userId: string; email: string }) {
-  const [tab, setTab] = useState<Tab>('Today')
+function DemoPlanner() {
+  const { data } = useDemoPlanner()
+  const actions = useDemoActions()
+  if (!data) return null
+  return (
+    <PlannerShell
+      data={data}
+      actions={actions}
+      email="demo — local only"
+      status="demo mode · saved in this browser"
+      demo
+    />
+  )
+}
+
+function CloudPlanner({ userId, email }: { userId: string; email: string }) {
   const { data, isPending, isError, error, isFetching } = usePlanner(userId)
   const actions = usePlannerActions(userId)
-  const today = new Date()
 
   if (isPending)
     return (
@@ -45,6 +65,26 @@ function Planner({ userId, email }: { userId: string; email: string }) {
       </div>
     )
 
+  return (
+    <PlannerShell data={data} actions={actions} email={email} status={isFetching ? 'syncing…' : 'synced'} />
+  )
+}
+
+function PlannerShell({
+  data,
+  actions,
+  email,
+  status,
+  demo = false,
+}: {
+  data: PlannerData
+  actions: PlannerActions
+  email: string
+  status: ReactNode
+  demo?: boolean
+}) {
+  const [tab, setTab] = useState<Tab>('Today')
+  const today = new Date()
   const viewProps: ViewProps = { data, actions, today }
 
   return (
@@ -55,7 +95,7 @@ function Planner({ userId, email }: { userId: string; email: string }) {
             className="ml-auto text-[11px] tracking-[0.03em]"
             style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}
           >
-            {isFetching ? 'syncing…' : 'synced'}
+            {status}
           </span>
         </div>
         <div className="mt-2 flex gap-0.5 overflow-x-auto border-b" style={{ borderColor: 'var(--line)' }}>
@@ -73,7 +113,7 @@ function Planner({ userId, email }: { userId: string; email: string }) {
         {tab === 'Stats' && <StatsView {...viewProps} />}
         {tab === 'Report' && <ReportView {...viewProps} />}
         {tab === 'Design' && <DesignView {...viewProps} />}
-        {tab === 'Account' && <AccountView data={data} email={email} />}
+        {tab === 'Account' && <AccountView data={data} email={email} demo={demo} />}
       </main>
     </div>
   )

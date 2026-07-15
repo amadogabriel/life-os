@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { PlannerData } from '../../lib/queries/planner'
 
-export function AccountView({ data, email }: { data: PlannerData; email: string }) {
+export function AccountView({ data, email, demo = false }: { data: PlannerData; email: string; demo?: boolean }) {
   const [status, setStatus] = useState('')
 
   async function setPassword() {
@@ -42,25 +42,33 @@ export function AccountView({ data, email }: { data: PlannerData; email: string 
           </tr>
           <tr>
             <td>Status</td>
-            <td style={{ textAlign: 'right' }}>{status || 'synced — every edit saves as its own row'}</td>
+            <td style={{ textAlign: 'right' }}>
+              {demo
+                ? 'demo mode — data stays in this browser'
+                : status || 'synced — every edit saves as its own row'}
+            </td>
           </tr>
         </tbody>
       </table>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button className="btn" onClick={setPassword}>
-          Set / change password
-        </button>
+        {!demo && (
+          <button className="btn" onClick={setPassword}>
+            Set / change password
+          </button>
+        )}
         <button className="btn ghost" onClick={exportJson}>
           ⤓ Export JSON
         </button>
-        <button className="btn ghost danger" onClick={() => supabase.auth.signOut()}>
-          Sign out
-        </button>
+        {!demo && (
+          <button className="btn ghost danger" onClick={() => supabase.auth.signOut()}>
+            Sign out
+          </button>
+        )}
       </div>
       <p className="mt-[14px] max-w-[64ch] text-[13px]" style={{ color: 'var(--ink-faint)' }}>
-        Your data lives in your Supabase project, one row per block/habit/log — no more last-write-wins
-        blob. The Supabase URL and key are baked in at build time; there's nothing to paste on new devices —
-        just sign in.
+        {demo
+          ? 'No Supabase credentials are configured, so the planner is running fully local. Copy .env.example to .env and fill in your project keys to turn on cloud sync (see SETUP.md).'
+          : "Your data lives in your Supabase project, one row per block/habit/log — no more last-write-wins blob. The Supabase URL and key are baked in at build time; there's nothing to paste on new devices — just sign in."}
       </p>
     </div>
   )
