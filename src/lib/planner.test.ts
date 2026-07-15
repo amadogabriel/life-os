@@ -20,6 +20,7 @@ const b = (over: Partial<Block>): Block => ({
   dow: 0,
   position: 0,
   cat: 'work',
+  deep: false,
   title: 't',
   detail: '',
   startMin: 0,

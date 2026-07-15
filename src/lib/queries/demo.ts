@@ -66,12 +66,12 @@ function load(): PlannerData {
         todos: d.todos ?? [],
         dumps: d.dumps ?? [],
         buckets: (d.buckets ?? []).map((bk) => ({
-          color: '',
           ...bk,
-          tasks: bk.tasks.map((t) => ({ deep: isDeepDefault(bk.cat, t.name), ...t })),
+          color: bk.color ?? '',
+          tasks: bk.tasks.map((t) => ({ ...t, deep: t.deep ?? isDeepDefault(bk.cat, t.name) })),
         })),
         blocksByDow: (d.blocksByDow ?? []).map((bs) =>
-          bs.map((b) => ({ deep: isDeepDefault(b.cat, b.title), ...b })),
+          bs.map((b) => ({ ...b, deep: b.deep ?? isDeepDefault(b.cat, b.title) })),
         ),
       }
     }
