@@ -1,10 +1,10 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ViewProps } from '../../App'
-import { CATS, dowMon, fmt, fmtDur, resolve, type Cat } from '../../lib/planner'
+import { catStyles, depthClass, dowMon, fmt, fmtDur, resolve, stripeVar } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from './BlockModal'
 import { DayEditor } from './DayEditor'
 
-const PXMIN = 38 / 30 // 30 min = 38px, shared across all days
+const PXMIN = 26 / 30 // 30 min = 26px — compact; color + a few words per block
 const HOLD_MS = 320 // touch long-press before a block starts moving
 
 interface DragVis {
@@ -12,7 +12,8 @@ interface DragVis {
   fromDow: number
   dx: number
   dy: number
-  target: { dow: number; idx: number } | null
+  /** `min` is the snapped drop time — used when re-pinning an anchored block. */
+  target: { dow: number; idx: number; min: number } | null
 }
 
 export function WeekView({ data, actions, today }: ViewProps) {
@@ -20,6 +21,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [dragVis, setDragVis] = useState<DragVis | null>(null)
   const todayDow = dowMon(today)
+  const styles = catStyles(data.buckets)
 
   const resolved = data.blocksByDow.map((blocks) => resolve(blocks))
   let axisStart: number | null = null
@@ -53,8 +55,9 @@ export function WeekView({ data, actions, today }: ViewProps) {
     startY: number
     timer: number | null
     active: boolean
+    anchored: boolean
     rects: (DOMRect | null)[]
-    target: { dow: number; idx: number } | null
+    target: { dow: number; idx: number; min: number } | null
   } | null>(null)
   const suppressClick = useRef(false)
   const blockScroll = useRef<((ev: TouchEvent) => void) | null>(null)
@@ -69,6 +72,14 @@ export function WeekView({ data, actions, today }: ViewProps) {
       if (y < mid) return i
     }
     return res.length
+  }
+
+  /** Snapped (30-min) time at the pointer inside a day column. */
+  function minuteAt(dow: number, clientY: number): number {
+    const rect = press.current?.rects[dow]
+    if (!rect) return axisStart!
+    const raw = axisStart! + (clientY - rect.top) / PXMIN
+    return Math.max(0, Math.min(1410, Math.round(raw / 30) * 30))
   }
 
   function dayAt(clientX: number): number {
@@ -99,7 +110,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
     blockScroll.current = blocker
     navigator.vibrate?.(30)
     const dow = dayAt(e.clientX)
-    p.target = { dow, idx: insertIdxAt(dow, e.clientY) }
+    p.target = { dow, idx: insertIdxAt(dow, e.clientY), min: minuteAt(dow, e.clientY) }
     setDragVis({ id: p.id, fromDow: p.dow, dx: 0, dy: 0, target: p.target })
   }
 
@@ -128,8 +139,9 @@ export function WeekView({ data, actions, today }: ViewProps) {
       startY: e.clientY,
       timer: null as number | null,
       active: false,
+      anchored: data.blocksByDow[dow].find((b) => b.id === id)?.anchored ?? false,
       rects: [] as (DOMRect | null)[],
-      target: null as { dow: number; idx: number } | null,
+      target: null as { dow: number; idx: number; min: number } | null,
     }
     press.current = p
     if (e.pointerType !== 'mouse') {
@@ -153,7 +165,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
     e.preventDefault()
     const p2 = press.current!
     const dow = dayAt(e.clientX)
-    p2.target = { dow, idx: insertIdxAt(dow, e.clientY) }
+    p2.target = { dow, idx: insertIdxAt(dow, e.clientY), min: minuteAt(dow, e.clientY) }
     setDragVis({ id: p2.id, fromDow: p2.dow, dx, dy, target: p2.target })
   }
 
@@ -165,16 +177,29 @@ export function WeekView({ data, actions, today }: ViewProps) {
       return // plain tap — let the click handler open the editor
     }
     suppressClick.current = true
-    const { id, dow: fromDow, target: t } = p
+    const { id, dow: fromDow, anchored, target: t } = p
     cleanupPress()
     if (!t) return
     if (t.dow === fromDow) {
-      const fromIdx = data.blocksByDow[fromDow].findIndex((b) => b.id === id)
-      const ids = data.blocksByDow[fromDow].map((b) => b.id).filter((x) => x !== id)
-      const idx = fromIdx >= 0 && fromIdx < t.idx ? t.idx - 1 : t.idx
-      ids.splice(Math.min(idx, ids.length), 0, id)
-      if (ids.some((x, i) => x !== data.blocksByDow[fromDow][i]?.id))
-        await actions.reorderBlocks(fromDow, ids)
+      if (anchored) {
+        // Vertical drag of a pinned block = move the pin to the drop time,
+        // then keep positions sorted by the resulting times.
+        const starts = new Map(resolved[fromDow].map((r) => [r.block.id, r.start]))
+        starts.set(id, t.min)
+        const ids = [...data.blocksByDow[fromDow]]
+          .sort((a, b) => starts.get(a.id)! - starts.get(b.id)! || a.position - b.position)
+          .map((b) => b.id)
+        await actions.updateBlock(id, { startMin: t.min })
+        if (ids.some((x, i) => x !== data.blocksByDow[fromDow][i]?.id))
+          await actions.reorderBlocks(fromDow, ids)
+      } else {
+        const fromIdx = data.blocksByDow[fromDow].findIndex((b) => b.id === id)
+        const ids = data.blocksByDow[fromDow].map((b) => b.id).filter((x) => x !== id)
+        const idx = fromIdx >= 0 && fromIdx < t.idx ? t.idx - 1 : t.idx
+        ids.splice(Math.min(idx, ids.length), 0, id)
+        if (ids.some((x, i) => x !== data.blocksByDow[fromDow][i]?.id))
+          await actions.reorderBlocks(fromDow, ids)
+      }
     } else {
       const ids = data.blocksByDow[t.dow].map((b) => b.id)
       ids.splice(Math.min(t.idx, ids.length), 0, id)
@@ -192,14 +217,13 @@ export function WeekView({ data, actions, today }: ViewProps) {
         </p>
       </div>
       <div className="mb-5 flex flex-wrap gap-x-[15px] gap-y-[7px]">
-        {(Object.keys(CATS) as Cat[])
-          .filter((k) => k !== 'life' && k !== 'open')
-          .map((k) => (
-            <span key={k} className={`legend-chip s-${k}`}>
-              <span className="dot" />
-              {CATS[k]}
-            </span>
-          ))}
+        {data.buckets.map((bk) => (
+          <span key={bk.id} className={`legend-chip s-${bk.cat}`} style={stripeVar(styles[bk.cat])}>
+            <span className="dot" />
+            {bk.name}
+            {bk.deep ? ' ·▲' : ''}
+          </span>
+        ))}
       </div>
       <div className="week">
         <div>
@@ -235,14 +259,15 @@ export function WeekView({ data, actions, today }: ViewProps) {
               {resolved[di].map(({ block: b, start, conflict }) => {
                 const top = Math.round((start - axisStart!) * PXMIN)
                 const hpx = Math.round(b.durMin * PXMIN)
-                const lines = Math.max(1, Math.floor((hpx - 4) / 14))
+                const lines = Math.max(1, Math.floor((hpx - 4) / 13))
                 const tip = `${fmt(start)} · ${fmtDur(b.durMin)} — ${b.title}${b.detail ? '\n' + b.detail : ''}`
                 const isDragging = dragVis?.id === b.id
                 return (
                   <div
                     key={b.id}
-                    className={`block s-${b.cat}${b.cat === 'open' ? ' is-open' : ''}${conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}`}
+                    className={`block s-${b.cat}${depthClass(styles[b.cat])}${b.cat === 'open' ? ' is-open' : ''}${conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}`}
                     style={{
+                      ...stripeVar(styles[b.cat]),
                       top,
                       height: hpx,
                       ...(isDragging && {
@@ -282,16 +307,18 @@ export function WeekView({ data, actions, today }: ViewProps) {
                   className="drop-line"
                   style={{
                     top:
-                      dragVis.target.idx < resolved[di].length
-                        ? Math.round((resolved[di][dragVis.target.idx].start - axisStart!) * PXMIN)
-                        : resolved[di].length
-                          ? Math.round(
-                              (resolved[di][resolved[di].length - 1].start +
-                                resolved[di][resolved[di].length - 1].block.durMin -
-                                axisStart!) *
-                                PXMIN,
-                            )
-                          : 0,
+                      dragVis.fromDow === di && press.current?.anchored
+                        ? Math.round((dragVis.target.min - axisStart!) * PXMIN)
+                        : dragVis.target.idx < resolved[di].length
+                          ? Math.round((resolved[di][dragVis.target.idx].start - axisStart!) * PXMIN)
+                          : resolved[di].length
+                            ? Math.round(
+                                (resolved[di][resolved[di].length - 1].start +
+                                  resolved[di][resolved[di].length - 1].block.durMin -
+                                  axisStart!) *
+                                  PXMIN,
+                              )
+                            : 0,
                   }}
                 />
               )}

@@ -3,6 +3,20 @@ import { Modal } from '../../components/Modal'
 import { CATS, type Cat } from '../../lib/planner'
 import type { Bucket } from '../../lib/queries/planner'
 
+/** Fallback hex per category, mirroring the CSS dark-theme palette, so the
+ *  color input shows the effective color even before a custom pick. */
+const CAT_HEX: Record<Cat, string> = {
+  work: '#4fb3ac',
+  devops: '#d1a24e',
+  thesis: '#8593e0',
+  math: '#c188c6',
+  chin: '#e08579',
+  exercise: '#6cc48a',
+  wqu: '#8a969d',
+  life: '#6f797d',
+  open: '#4fb3ac',
+}
+
 export function BucketModal({
   bucket,
   onSave,
@@ -10,12 +24,14 @@ export function BucketModal({
   onClose,
 }: {
   bucket: Bucket | null
-  onSave: (b: { id?: string; name: string; cat: Cat; tasks: string[] }) => void
+  onSave: (b: { id?: string; name: string; cat: Cat; tasks: string[]; color: string; deep: boolean }) => void
   onDelete: (id: string) => void
   onClose: () => void
 }) {
   const [name, setName] = useState(bucket?.name ?? '')
   const [cat, setCat] = useState<Cat>(bucket?.cat ?? 'work')
+  const [color, setColor] = useState(bucket?.color ?? '')
+  const [deep, setDeep] = useState(bucket?.deep ?? false)
   const [tasks, setTasks] = useState<string[]>(bucket ? bucket.tasks.map((t) => t.name) : ['New task'])
 
   return (
@@ -24,18 +40,40 @@ export function BucketModal({
         <label>Name</label>
         <input type="text" maxLength={30} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
       </div>
-      <div className="field">
-        <label>Color</label>
-        <select value={cat} onChange={(e) => setCat(e.target.value as Cat)}>
-          {(Object.keys(CATS) as Cat[])
-            .filter((k) => k !== 'open')
-            .map((k) => (
-              <option key={k} value={k}>
-                {CATS[k]}
-              </option>
-            ))}
-        </select>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="field">
+          <label>Category</label>
+          <select value={cat} onChange={(e) => setCat(e.target.value as Cat)}>
+            {(Object.keys(CATS) as Cat[])
+              .filter((k) => k !== 'open')
+              .map((k) => (
+                <option key={k} value={k}>
+                  {CATS[k]}
+                </option>
+              ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>Color</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={color || CAT_HEX[cat]}
+              onChange={(e) => setColor(e.target.value)}
+              style={{ width: 44, height: 32, padding: 2, cursor: 'pointer' }}
+            />
+            {color && (
+              <button type="button" className="btn ghost sm" onClick={() => setColor('')}>
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
       </div>
+      <label className="check">
+        <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} /> Deep work —
+        rendered saturated; shallow buckets are muted
+      </label>
       <div className="field">
         <label>Tasks (default 1h · adjust by 30m in the day)</label>
         {tasks.map((t, i) => (
@@ -78,6 +116,8 @@ export function BucketModal({
               id: bucket?.id,
               name: name.trim() || 'Bucket',
               cat,
+              color,
+              deep,
               tasks: tasks.map((t) => t.trim()).filter(Boolean),
             })
           }

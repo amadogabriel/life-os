@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent, type PointerEvent } from 'react'
-import { fmt, fmtDur, resolve } from '../lib/planner'
+import { depthClass, fmt, fmtDur, resolve, stripeVar, type Cat, type CatStyle } from '../lib/planner'
 
 export interface TimelineItem {
   id: string
@@ -34,6 +34,7 @@ export function TimelineEditor({
   onTitleClick,
   onDropExternal,
   emptyHint = 'Tap a task chip (or drag it here) to add.',
+  styles,
 }: {
   items: TimelineItem[]
   startAt?: number
@@ -45,6 +46,7 @@ export function TimelineEditor({
   onTitleClick?: (id: string) => void
   onDropExternal?: (payload: string, insertIdx: number) => void
   emptyHint?: string
+  styles?: Partial<Record<Cat, CatStyle>>
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
@@ -218,11 +220,12 @@ export function TimelineEditor({
             <div
               className={
                 `tlcard s-${it.cat}` +
+                depthClass(styles?.[it.cat as Cat]) +
                 (conflict ? ' conflict' : '') +
                 (dragId === it.id ? ' dragging' : '') +
                 (hpx <= 40 ? ' compact' : '')
               }
-              style={{ top: yOf(start), height: hpx }}
+              style={{ ...stripeVar(styles?.[it.cat as Cat]), top: yOf(start), height: hpx }}
             >
               <div
                 className="dh"

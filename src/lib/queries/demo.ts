@@ -11,7 +11,7 @@ import {
   defaultDesignItems,
   defaultHabits,
 } from '../defaults'
-import { plannerKey, type DesignItem, type PlannerActions, type PlannerData } from './planner'
+import { DEEP_CATS, plannerKey, type DesignItem, type PlannerActions, type PlannerData } from './planner'
 
 const STORE_KEY = 'life-os-demo-v1'
 
@@ -43,9 +43,13 @@ function buildDemoData(): PlannerData {
       name: bk.name,
       cat: bk.cat,
       position,
+      color: '',
+      deep: DEEP_CATS.includes(bk.cat),
       tasks: bk.tasks.map((name, i) => ({ id: nid(), name, position: i })),
     })),
     designItems: defaultDesignItems.map((it, position) => ({ id: nid(), position, ...it })),
+    todos: [],
+    dumps: [],
     notes: DEFAULT_NOTES,
     designWakeMin: DEFAULT_WAKE_MIN,
   }
@@ -54,7 +58,20 @@ function buildDemoData(): PlannerData {
 function load(): PlannerData {
   try {
     const raw = localStorage.getItem(STORE_KEY)
-    if (raw) return JSON.parse(raw) as PlannerData
+    if (raw) {
+      // hydrate fields added after the store was first written
+      const d = JSON.parse(raw) as PlannerData
+      return {
+        ...d,
+        todos: d.todos ?? [],
+        dumps: d.dumps ?? [],
+        buckets: (d.buckets ?? []).map((bk) => ({
+          color: '',
+          deep: DEEP_CATS.includes(bk.cat),
+          ...bk,
+        })),
+      }
+    }
   } catch {
     /* corrupted store — reseed */
   }
@@ -158,15 +175,30 @@ export function useDemoActions(): PlannerActions {
         buckets: bucket.id
           ? d.buckets.map((bk) =>
               bk.id === bucket.id
-                ? { ...bk, name: bucket.name, cat: bucket.cat, tasks: bucket.tasks.map((name, i) => ({ id: nid(), name, position: i })) }
+                ? { ...bk, name: bucket.name, cat: bucket.cat, color: bucket.color, deep: bucket.deep, tasks: bucket.tasks.map((name, i) => ({ id: nid(), name, position: i })) }
                 : bk,
             )
           : [
               ...d.buckets,
-              { id: nid(), name: bucket.name, cat: bucket.cat, position, tasks: bucket.tasks.map((name, i) => ({ id: nid(), name, position: i })) },
+              { id: nid(), name: bucket.name, cat: bucket.cat, position, color: bucket.color, deep: bucket.deep, tasks: bucket.tasks.map((name, i) => ({ id: nid(), name, position: i })) },
             ],
       })),
     deleteBucket: (id) => mutate((d) => ({ ...d, buckets: d.buckets.filter((bk) => bk.id !== id) })),
+
+    addTodo: (text) =>
+      mutate((d) => ({
+        ...d,
+        todos: [...d.todos, { id: nid(), text, done: false, position: d.todos.length }],
+      })),
+    toggleTodo: (id, done) =>
+      mutate((d) => ({ ...d, todos: d.todos.map((t) => (t.id === id ? { ...t, done } : t)) })),
+    deleteTodo: (id) => mutate((d) => ({ ...d, todos: d.todos.filter((t) => t.id !== id) })),
+    addDump: (text) =>
+      mutate((d) => ({
+        ...d,
+        dumps: [...d.dumps, { id: nid(), text, createdAt: new Date().toISOString() }],
+      })),
+    deleteDump: (id) => mutate((d) => ({ ...d, dumps: d.dumps.filter((x) => x.id !== id) })),
 
     async addDesignItem(item, position) {
       const id = nid()

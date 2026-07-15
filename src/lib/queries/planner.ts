@@ -22,7 +22,22 @@ export interface Bucket {
   name: string
   cat: Cat
   position: number
+  color: string // '' = default palette color for the cat
+  deep: boolean // deep work — rendered saturated; shallow renders muted
   tasks: BucketTask[]
+}
+
+export interface Todo {
+  id: string
+  text: string
+  done: boolean
+  position: number
+}
+
+export interface DumpItem {
+  id: string
+  text: string
+  createdAt: string
 }
 
 export interface DesignItem {
@@ -41,11 +56,16 @@ export interface PlannerData {
   habitLogs: LogMap
   buckets: Bucket[]
   designItems: DesignItem[]
+  todos: Todo[]
+  dumps: DumpItem[]
   notes: string
   designWakeMin: number
 }
 
 export const plannerKey = ['planner'] as const
+
+/** Categories that default to deep work on first seed. */
+export const DEEP_CATS: Cat[] = ['work', 'math', 'thesis']
 
 function toLogMap(rows: { done_on: string }[], idKey: 'block_id' | 'habit_id'): LogMap {
   const map: LogMap = {}
@@ -86,7 +106,7 @@ async function seedDefaults(userId: string): Promise<void> {
   for (const [position, bk] of defaultBuckets.entries()) {
     const { data: bucket, error } = await supabase
       .from('buckets')
-      .insert({ user_id: userId, name: bk.name, cat: bk.cat, position })
+      .insert({ user_id: userId, name: bk.name, cat: bk.cat, position, deep: DEEP_CATS.includes(bk.cat) })
       .select('id')
       .single()
     if (error) throw error
@@ -108,7 +128,7 @@ async function seedDefaults(userId: string): Promise<void> {
 }
 
 async function fetchPlanner(userId: string): Promise<PlannerData> {
-  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, profile] =
+  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, profile] =
     await Promise.all([
       supabase.from('days').select('*').order('dow'),
       supabase.from('blocks').select('*').order('dow').order('position'),
@@ -118,9 +138,11 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       supabase.from('buckets').select('*').order('position'),
       supabase.from('bucket_tasks').select('*').order('position'),
       supabase.from('design_items').select('*').order('position'),
+      supabase.from('todos').select('*').order('position'),
+      supabase.from('dump_items').select('*').order('created_at'),
       supabase.from('profiles').select('*').maybeSingle(),
     ])
-  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, profile]
+  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, profile]
   for (const r of results) if (r.error) throw r.error
 
   if (!days.data || days.data.length === 0) {
@@ -168,6 +190,8 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       name: bk.name,
       cat: bk.cat as Cat,
       position: bk.position,
+      color: bk.color ?? '',
+      deep: bk.deep ?? false,
       tasks: taskByBucket.get(bk.id) ?? [],
     })),
     designItems: designItems.data!.map((it) => ({
@@ -177,6 +201,8 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       cat: it.cat as Cat,
       mins: it.mins,
     })),
+    todos: todos.data!.map((t) => ({ id: t.id, text: t.text, done: t.done, position: t.position })),
+    dumps: dumps.data!.map((d) => ({ id: d.id, text: d.text, createdAt: d.created_at })),
     notes: profile.data?.notes ?? '',
     designWakeMin: profile.data?.design_wake_min ?? DEFAULT_WAKE_MIN,
   }
@@ -209,8 +235,16 @@ export interface PlannerActions {
   moveBlock(id: string, toDow: number, orderedTargetIds: string[]): Promise<void>
   saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
   deleteHabit(id: string): Promise<void>
-  saveBucket(bucket: { id?: string; name: string; cat: Cat; tasks: string[] }, position: number): Promise<void>
+  saveBucket(
+    bucket: { id?: string; name: string; cat: Cat; tasks: string[]; color: string; deep: boolean },
+    position: number,
+  ): Promise<void>
   deleteBucket(id: string): Promise<void>
+  addTodo(text: string): Promise<void>
+  toggleTodo(id: string, done: boolean): Promise<void>
+  deleteTodo(id: string): Promise<void>
+  addDump(text: string): Promise<void>
+  deleteDump(id: string): Promise<void>
   addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<string>
   updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
   swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
@@ -384,12 +418,15 @@ export function usePlannerActions(userId: string): PlannerActions {
       await invalidate()
     },
 
-    async saveBucket(bucket: { id?: string; name: string; cat: Cat; tasks: string[] }, position: number) {
+    async saveBucket(
+      bucket: { id?: string; name: string; cat: Cat; tasks: string[]; color: string; deep: boolean },
+      position: number,
+    ) {
       let bucketId = bucket.id
       if (bucketId) {
         const { error } = await supabase
           .from('buckets')
-          .update({ name: bucket.name, cat: bucket.cat })
+          .update({ name: bucket.name, cat: bucket.cat, color: bucket.color, deep: bucket.deep })
           .eq('id', bucketId)
         if (error) throw error
         const { error: delErr } = await supabase.from('bucket_tasks').delete().eq('bucket_id', bucketId)
@@ -397,7 +434,14 @@ export function usePlannerActions(userId: string): PlannerActions {
       } else {
         const { data, error } = await supabase
           .from('buckets')
-          .insert({ user_id: userId, name: bucket.name, cat: bucket.cat, position })
+          .insert({
+            user_id: userId,
+            name: bucket.name,
+            cat: bucket.cat,
+            position,
+            color: bucket.color,
+            deep: bucket.deep,
+          })
           .select('id')
           .single()
         if (error) throw error
@@ -416,6 +460,36 @@ export function usePlannerActions(userId: string): PlannerActions {
       const { error } = await supabase.from('buckets').delete().eq('id', id)
       if (error) throw error
       await invalidate()
+    },
+
+    async addTodo(text: string) {
+      const { error } = await supabase.from('todos').insert({ user_id: userId, text, position: Date.now() })
+      if (error) throw error
+      await invalidate()
+    },
+
+    async toggleTodo(id: string, done: boolean) {
+      patch((data) => ({ ...data, todos: data.todos.map((t) => (t.id === id ? { ...t, done } : t)) }))
+      const { error } = await supabase.from('todos').update({ done }).eq('id', id)
+      if (error) invalidate()
+    },
+
+    async deleteTodo(id: string) {
+      patch((data) => ({ ...data, todos: data.todos.filter((t) => t.id !== id) }))
+      const { error } = await supabase.from('todos').delete().eq('id', id)
+      if (error) invalidate()
+    },
+
+    async addDump(text: string) {
+      const { error } = await supabase.from('dump_items').insert({ user_id: userId, text })
+      if (error) throw error
+      await invalidate()
+    },
+
+    async deleteDump(id: string) {
+      patch((data) => ({ ...data, dumps: data.dumps.filter((d) => d.id !== id) }))
+      const { error } = await supabase.from('dump_items').delete().eq('id', id)
+      if (error) invalidate()
     },
 
     async addDesignItem(item: { name: string; cat: Cat }, position: number) {

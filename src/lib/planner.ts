@@ -58,6 +58,30 @@ export interface Habit {
 /** logs[dateISO] is the set of block/habit ids checked off that day. */
 export type LogMap = Record<string, Record<string, true>>
 
+// ---------- category styling ----------
+
+export interface CatStyle {
+  color: string // '' = default palette color for the cat
+  deep: boolean
+}
+
+/** Per-category visual style derived from the user's buckets. */
+export function catStyles(buckets: { cat: Cat; color: string; deep: boolean }[]): Partial<Record<Cat, CatStyle>> {
+  const map: Partial<Record<Cat, CatStyle>> = {}
+  for (const bk of buckets) if (!map[bk.cat]) map[bk.cat] = { color: bk.color, deep: bk.deep }
+  return map
+}
+
+/** Inline style overriding the stripe color when the bucket has a custom one. */
+export function stripeVar(style?: CatStyle): Record<string, string> | undefined {
+  return style?.color ? { ['--stripe']: style.color } : undefined
+}
+
+/** ' sh' class suffix for shallow (non-deep) categories — rendered muted. */
+export function depthClass(style?: CatStyle): string {
+  return style?.deep ? '' : ' sh'
+}
+
 // ---------- time / date helpers ----------
 
 const pad = (n: number) => (n < 10 ? '0' : '') + n
