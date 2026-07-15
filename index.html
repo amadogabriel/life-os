@@ -165,10 +165,9 @@ document.addEventListener("DOMContentLoaded", function(){
   .day-head .dtag { font-family:var(--mono); font-size:8.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); border:1px solid var(--line); border-radius:999px; padding:1px 6px; }
   .today-badge { font-family:var(--mono); font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:#fff; background:var(--accent); border-radius:999px; padding:1px 6px; }
 
-  .blocks { display:flex; flex-direction:column; }
-  .block { display:grid; grid-template-columns:46px 1fr; gap:7px; padding:4px 8px 4px 9px; border-bottom:1px solid var(--line-soft);
-    border-left:6px solid var(--stripe,var(--line)); cursor:pointer; transition:background .12s; position:relative; overflow:hidden; align-content:start; }
-  .block:last-child { border-bottom:0; }
+  .blocks { position:relative; }
+  .block { position:absolute; left:0; right:0; display:grid; grid-template-columns:46px 1fr; gap:7px; padding:3px 8px 3px 9px; border-top:1px solid var(--line-soft);
+    border-left:6px solid var(--stripe,var(--line)); cursor:pointer; transition:background .12s; overflow:hidden; align-content:start; box-sizing:border-box; }
   .block:hover { background:color-mix(in srgb,var(--paper) 50%,transparent); }
   .block:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
   .block .time { font-family:var(--mono); font-size:10px; color:var(--ink-faint); padding-top:1px; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -339,9 +338,6 @@ document.addEventListener("DOMContentLoaded", function(){
 
 <div class="wrap">
   <header class="masthead">
-    <p class="eyebrow">Deep-Work Operating System</p>
-    <h1>One life, running on autopilot — and now it keeps score.</h1>
-    <p class="lede">The commute is <b>ears-only</b> (Chinese audio), eyes-on deep work lives at a <b>desk on Fridays + weekends</b>, and weeknights now carry a short <b>workout + a focused hour of math</b>. Check things off in <b>Today</b>, build streaks in <b>Habits</b>, edit the plan in <b>Week</b>, and watch it add up in <b>Stats</b>. Everything auto-saves to this browser.</p>
     <div class="toolbar">
       <button class="btn ghost sm" id="exportBtn">⤓ Export</button>
       <button class="btn ghost sm" id="importBtn">⤒ Import</button>
@@ -626,17 +622,24 @@ window.__runApp=function(){
   function renderLegend(){ var leg=document.getElementById("legend"); leg.innerHTML="";
     Object.keys(CATS).forEach(function(k){ if(k==="life"||k==="open")return;
       var c=document.createElement("span"); c.className="chip"; c.innerHTML='<span class="dot s-'+k+'"></span>'+esc(CATS[k]); leg.appendChild(c); }); }
+  var PXMIN=26/30; // 30 min = 26px, shared across all days
   function renderWeek(){
     var wk=document.getElementById("week"); wk.innerHTML="";
+    // shared time axis: earliest start → latest end across the whole week
+    var axisStart=null, axisEnd=null, resolved=state.days.map(function(day){ return resolve(day.blocks); });
+    resolved.forEach(function(res){ if(!res.length)return; var s=res[0].start, e=res[res.length-1].start+res[res.length-1].b.dur;
+      if(axisStart===null||s<axisStart)axisStart=s; if(axisEnd===null||e>axisEnd)axisEnd=e; });
+    if(axisStart===null){ axisStart=300; axisEnd=1320; }
+    var spanPx=Math.round((axisEnd-axisStart)*PXMIN);
     state.days.forEach(function(day,di){
-      var res=resolve(day.blocks);
+      var res=resolved[di];
       var el=document.createElement("div"); el.className="day"+(di===TODAY_DOW?" today":"");
       var head='<div class="day-head"><span class="dname">'+esc(day.name)+'</span><span>'+
         (di===TODAY_DOW?'<span class="today-badge">Today</span> ':'')+'<span class="dtag">'+esc(day.loc)+'</span></span></div>';
-      var body='<div class="blocks">';
+      var body='<div class="blocks" style="height:'+spanPx+'px">';
       res.forEach(function(r,bi){ var b=r.b; var tip=esc(fmt(r.start)+" · "+fmtDur(b.dur)+" — "+b.title+(b.desc?"\n"+b.desc:""));
-        var hpx=Math.max(24, Math.round(b.dur/30*26)); // 30 min = 26px; 1h = 52px, 2h = 104px …
-        body+='<div class="block s-'+b.cat+(b.cat==="open"?" is-open":"")+(r.conflict?" conflict":"")+'" style="height:'+hpx+'px" tabindex="0" title="'+tip+'" data-day="'+di+'" data-blk="'+bi+'">'+
+        var top=Math.round((r.start-axisStart)*PXMIN), hpx=Math.round(b.dur*PXMIN);
+        body+='<div class="block s-'+b.cat+(b.cat==="open"?" is-open":"")+(r.conflict?" conflict":"")+'" style="top:'+top+'px;height:'+hpx+'px" tabindex="0" title="'+tip+'" data-day="'+di+'" data-blk="'+bi+'">'+
           '<div class="time">'+fmt(r.start)+'<span class="dur">'+fmtDur(b.dur)+(b.anchor?' <span class="pin">📌</span>':'')+'</span></div>'+
           '<div><div class="title">'+esc(b.title)+'</div></div></div>'; });
       body+='</div><div class="day-foot"><button class="add-block" data-add="'+di+'">+ Add block</button></div>';
