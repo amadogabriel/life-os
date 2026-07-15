@@ -156,7 +156,11 @@ document.addEventListener("DOMContentLoaded", function(){
   .dot { width:11px; height:11px; border-radius:3px; flex:none; }
 
   /* week grid */
-  .week { display:grid; grid-template-columns:repeat(7,minmax(140px,1fr)); gap:8px; align-items:start; overflow-x:auto; padding-bottom:6px; }
+  .week { display:grid; grid-template-columns:44px repeat(7,minmax(120px,1fr)); gap:6px; align-items:start; overflow-x:auto; padding-bottom:6px; }
+  .gutter { background:transparent; }
+  .gutter .day-head { border-bottom-color:transparent; background:transparent; }
+  .gutter .gname { font-family:var(--mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint); }
+  .hourlab { position:absolute; right:6px; font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); font-variant-numeric:tabular-nums; transform:translateY(-0.55em); }
   .day { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
   .day.today { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
   .day-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 10px; border-bottom:1px solid var(--line);
@@ -632,18 +636,26 @@ window.__runApp=function(){
       if(axisStart===null||s<axisStart)axisStart=s; if(axisEnd===null||e>axisEnd)axisEnd=e; });
     if(axisStart===null){ axisStart=300; axisEnd=1320; }
     var spanPx=Math.round((axisEnd-axisStart)*PXMIN);
+    var hourPx=Math.round(60*PXMIN);
+    var gridBg="repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, transparent 1px, transparent "+hourPx+"px)";
+    // left time gutter
+    var gut=document.createElement("div"); gut.className="gutter";
+    var glab='<div class="blocks" style="height:'+spanPx+'px">';
+    for(var mm=Math.ceil(axisStart/60)*60; mm<=axisEnd; mm+=60){ glab+='<div class="hourlab" style="top:'+Math.round((mm-axisStart)*PXMIN)+'px">'+fmt(mm)+'</div>'; }
+    glab+='</div>';
+    gut.innerHTML='<div class="day-head"><span class="gname">Time</span></div>'+glab;
+    wk.appendChild(gut);
     state.days.forEach(function(day,di){
       var res=resolved[di];
       var el=document.createElement("div"); el.className="day"+(di===TODAY_DOW?" today":"");
       var head='<div class="day-head"><span class="dname">'+esc(day.name)+'</span><span>'+
         (di===TODAY_DOW?'<span class="today-badge">Today</span> ':'')+'<span class="dtag">'+esc(day.loc)+'</span></span></div>';
-      var body='<div class="blocks" style="height:'+spanPx+'px">';
+      var body='<div class="blocks" style="height:'+spanPx+'px;background:'+gridBg+'">';
       res.forEach(function(r,bi){ var b=r.b; var tip=esc(fmt(r.start)+" · "+fmtDur(b.dur)+" — "+b.title+(b.desc?"\n"+b.desc:""));
         var top=Math.round((r.start-axisStart)*PXMIN), hpx=Math.round(b.dur*PXMIN);
-        var lines=Math.max(1, Math.floor((hpx-16)/14)); // clean ellipsis instead of mid-word clipping
+        var lines=Math.max(1, Math.floor((hpx-4)/14)); // clean ellipsis instead of mid-word clipping
         body+='<div class="block s-'+b.cat+(b.cat==="open"?" is-open":"")+(r.conflict?" conflict":"")+'" style="top:'+top+'px;height:'+hpx+'px" tabindex="0" title="'+tip+'" data-day="'+di+'" data-blk="'+bi+'">'+
-          '<div class="time">'+fmt(r.start)+'<span class="dur">'+fmtDur(b.dur)+'</span>'+(b.anchor?' <span class="pin">📌</span>':'')+'</div>'+
-          '<div class="title" style="-webkit-line-clamp:'+lines+'">'+esc(b.title)+'</div></div>'; });
+          '<div class="title" style="-webkit-line-clamp:'+lines+'">'+esc(b.title)+(b.anchor?' <span class="pin">📌</span>':'')+'</div></div>'; });
       body+='</div><div class="day-foot"><button class="add-block" data-add="'+di+'">+ Add block</button></div>';
       el.innerHTML=head+body; wk.appendChild(el);
     });
