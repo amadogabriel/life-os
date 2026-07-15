@@ -351,6 +351,7 @@ document.addEventListener("DOMContentLoaded", function(){
       <button class="tab" data-view="week">Week</button>
       <button class="tab" data-view="habits">Habits</button>
       <button class="tab" data-view="stats">Stats</button>
+      <button class="tab" data-view="report">Report</button>
       <button class="tab" data-view="design">Design</button>
     </div>
   </header>
@@ -396,6 +397,19 @@ document.addEventListener("DOMContentLoaded", function(){
       <p><b>The commute is audio, full stop.</b> A cramped, noisy jeepney or bus rules out reading — so both commute blocks are Chinese listening, ~18h/week of comprehensible input. Get noise-isolating earphones and pre-download offline audio.</p>
       <p><b>Weeknights are a tight stack.</b> Home ~7:30, then a short workout + one focused hour of math before a 22:00 lights-out. On a wiped day, do <i>one</i> of the two and protect sleep — the Habits streak rewards showing up, not overreaching.</p>
     </div>
+  </div>
+
+  <!-- REPORT -->
+  <div class="view" id="view-report">
+    <div class="view-head" style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
+      <div style="flex:1"><h2>Fortnight report</h2><p id="reportRange">—</p></div>
+      <div style="display:flex;gap:6px;"><button class="btn ghost sm" id="repPrev">← Earlier</button><button class="btn ghost sm" id="repNext">Later →</button></div>
+    </div>
+    <div class="statcards" id="repCards"></div>
+    <div class="subhead">Hours accomplished by commitment</div>
+    <table class="quota-table"><thead><tr><th>Commitment</th><th>Done</th><th style="width:240px">Share</th></tr></thead><tbody id="repHours"></tbody></table>
+    <div class="subhead">Habits over the fortnight</div>
+    <table class="quota-table"><thead><tr><th>Habit</th><th>Done / target</th><th>Rate</th><th>Current streak</th></tr></thead><tbody id="repHabits"></tbody></table>
   </div>
 </div>
 
@@ -687,7 +701,58 @@ window.__runApp=function(){
     document.getElementById("notesBox").value=state.notes||"";
   }
 
-  function renderAll(){ renderLegend(); renderWeek(); renderToday(); renderHabits(); renderStats(); renderDesign(); }
+  function renderAll(){ renderLegend(); renderWeek(); renderToday(); renderHabits(); renderStats(); renderDesign(); renderReport(); }
+
+  // ===== FORTNIGHT REPORT =====
+  var reportOffset=0; // 0 = the 14 days ending today; -1 = previous fortnight, etc.
+  function shortDate(d){ return ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]+" "+d.getDate(); }
+  function renderReport(){
+    var endOff=reportOffset*14, startOff=endOff-13;
+    var accomp={}, planned={}, doneBlocks=0, plannedBlocks=0;
+    COUNTED.forEach(function(k){ accomp[k]=0; planned[k]=0; });
+    for(var off=startOff; off<=endOff; off++){
+      var d=dobj(off); var dw=dowMon(d); var key=iso(d); var log=state.blockLog[key]||{};
+      var day=state.days[dw]; if(!day) continue;
+      day.blocks.forEach(function(b){ if(COUNTED.indexOf(b.cat)<0) return; planned[b.cat]+=b.dur; plannedBlocks++;
+        if(log[b.id]){ accomp[b.cat]+=b.dur; doneBlocks++; } });
+    }
+    var startD=dobj(startOff), endD=dobj(endOff);
+    document.getElementById("reportRange").textContent=shortDate(startD)+" – "+shortDate(endD)+(reportOffset===0?" · ending today":"");
+    // habits over window
+    var habitRows=state.habits.map(function(h){ var target=0, done=0;
+      for(var off=startOff; off<=endOff; off++){ var d=dobj(off); if(h.days.indexOf(dowMon(d))<0) continue; target++; var l=state.habitLog[iso(d)]||{}; if(l[h.id]) done++; }
+      return { h:h, target:target, done:done, streak:streak(h) }; });
+    // cards
+    var totalDone=0, totalPlanned=0; COUNTED.forEach(function(k){ totalDone+=accomp[k]; totalPlanned+=planned[k]; });
+    var bestS=0; habitRows.forEach(function(r){ if(r.streak>bestS) bestS=r.streak; });
+    var cards=[
+      { n:doneBlocks+"/"+plannedBlocks, l:"Blocks completed" },
+      { n:fmtDur(totalDone)||"0m", l:"Hours accomplished" },
+      { n:(plannedBlocks?Math.round(doneBlocks/plannedBlocks*100):0)+"%", l:"Follow-through" },
+      { n:bestS>0?"🔥 "+bestS:"—", l:"Best current streak" }
+    ];
+    var sc=document.getElementById("repCards"); sc.innerHTML="";
+    cards.forEach(function(c){ var el=document.createElement("div"); el.className="statcard"; el.innerHTML='<div class="n">'+c.n+'</div><div class="l">'+esc(c.l)+'</div>'; sc.appendChild(el); });
+    // hours by cat
+    var rows=COUNTED.map(function(k){ return {k:k,m:accomp[k],p:planned[k]}; }).filter(function(r){ return r.p>0; }).sort(function(a,b){ return b.m-a.m; });
+    var max=rows.reduce(function(x,r){ return Math.max(x,r.m); },1);
+    var hb=document.getElementById("repHours"); hb.innerHTML="";
+    rows.forEach(function(r){ var pct=Math.round(r.m/max*100); var tr=document.createElement("tr");
+      tr.innerHTML='<td><span class="qname"><span class="dot s-'+r.k+'"></span>'+esc(CATS[r.k])+'</span></td>'+
+        '<td class="hrs">'+(fmtDur(r.m)||"0m")+' <span style="color:var(--ink-faint)">/ '+fmtDur(r.p)+'</span></td>'+
+        '<td><div class="bar-track"><div class="bar s-'+r.k+'" style="width:'+pct+'%"></div></div></td>'; hb.appendChild(tr); });
+    if(!rows.length) hb.innerHTML='<tr><td colspan="3" style="color:var(--ink-faint)">Nothing planned in this window.</td></tr>';
+    // habits table
+    var tb=document.getElementById("repHabits"); tb.innerHTML="";
+    habitRows.forEach(function(r){ var rate=r.target?Math.round(r.done/r.target*100):0; var tr=document.createElement("tr");
+      tr.innerHTML='<td><span class="qname"><span class="dot s-'+r.h.cat+'"></span>'+esc(r.h.name)+'</span></td>'+
+        '<td class="hrs">'+r.done+' / '+r.target+'</td>'+
+        '<td class="hrs">'+rate+'%</td>'+
+        '<td class="hrs">'+(r.streak>0?"🔥 "+r.streak:"—")+'</td>'; tb.appendChild(tr); });
+    if(!habitRows.length) tb.innerHTML='<tr><td colspan="4" style="color:var(--ink-faint)">No habits yet.</td></tr>';
+  }
+  document.getElementById("repPrev").onclick=function(){ reportOffset--; renderReport(); };
+  document.getElementById("repNext").onclick=function(){ if(reportOffset<0){ reportOffset++; renderReport(); } };
 
   // ---- block modal ----
   var scrim=document.getElementById("scrim"), editing=null;
