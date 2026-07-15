@@ -1,85 +1,89 @@
-# Weekly Planner — cross-device sync setup
+# Weekly Planner — setup (real-app edition)
 
-This turns your planner into a real app that syncs across your work PC, home PC, phone, and iPads. Data lives in a free **Supabase** database; you sign in with a **magic email link** (no passwords). Do the one-time setup once; then each device just needs a sign-in.
+The planner is now a Vite + React + TypeScript app backed by a **normalized Supabase
+schema** (one row per block/habit/log — no more last-write-wins blob). Do the one-time
+setup below; every other device just opens the URL and signs in.
 
-Estimated time: ~15 minutes.
-
----
+> The old single-file mockup lives in `legacy/index.html` and still works against the
+> old `planners` table if you ever need it.
 
 ## Step 1 — Create a Supabase project (free)
 
-1. Go to **https://supabase.com** → sign up (GitHub or email).
-2. Click **New project**. Pick any name, set a database password (you won't need it for this), choose the region closest to you (e.g. Southeast Asia — Singapore).
-3. Wait ~2 minutes for it to provision.
+1. Go to **https://supabase.com** → sign up → **New project** (pick the region closest
+   to you, e.g. Southeast Asia — Singapore).
+2. In **Authentication → Providers → Email**, turn **Confirm email OFF** (the app uses
+   email + password sign-in).
 
-## Step 2 — Create the storage table
+## Step 2 — Create the schema
 
-1. In your project, open the **SQL Editor** (left sidebar) → **New query**.
-2. Paste this and click **Run**:
+Open the **SQL Editor** → New query → paste the whole contents of
+`supabase/migrations/0001_normalized_schema.sql` → **Run**.
 
-```sql
-create table planners (
-  user_id uuid primary key references auth.users on delete cascade,
-  data jsonb,
-  updated_at timestamptz default now()
-);
+This creates `days`, `blocks`, `block_logs`, `habits`, `habit_logs`, `buckets`,
+`bucket_tasks`, `design_items`, and `profiles`, each locked to your user with
+row-level security.
 
-alter table planners enable row level security;
+## Step 3 — Configure the app
 
-create policy "own row" on planners
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+```bash
+cp .env.example .env
 ```
 
-This creates one row per user and locks it so **only you can read/write your own data**.
+Fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from
+**Project Settings → API**. (The anon key is public by design — RLS is the security
+layer.) The keys are baked in at build time; there is no paste-your-keys screen anymore.
 
-## Step 3 — Get your two keys
+## Step 4 — Run / build
 
-1. Left sidebar → **Project Settings** → **API**.
-2. Copy these two values (keep this tab open):
-   - **Project URL** — looks like `https://abcdefgh.supabase.co`
-   - **anon public** key — a long string under "Project API keys". *(The `anon` key is safe to use in the browser — the table policy above is what protects your data.)*
+```bash
+npm install
+npm run dev        # local dev server
+npm test           # unit tests (planner logic)
+npm run test:e2e   # Playwright smoke test
+npm run build      # production build in dist/
+```
 
-## Step 4 — Deploy the app (get a URL)
+First sign-in on a fresh account seeds the default week automatically.
 
-The `index.html` file in this folder is the whole app. Host it anywhere static. Easiest option:
+## Step 5 — Bring over your existing data (one time)
 
-**Netlify Drop** (no config):
-1. Go to **https://app.netlify.com/drop**.
-2. Drag this **`planner-app` folder** onto the page.
-3. It gives you a URL like `https://something.netlify.app`. That's your app.
+If you used the legacy app, your planner is a jsonb blob in the `planners` table.
+Add `LEGACY_IMPORT_EMAIL` and `LEGACY_IMPORT_PASSWORD` (your planner login) to `.env`,
+then:
 
-*(Alternatives: Vercel, Cloudflare Pages, GitHub Pages — any static host works.)*
+```bash
+npm run import-legacy
+```
 
-## Step 5 — Tell Supabase your app's URL
+It copies days, blocks, habits, buckets, the designed day, notes, **and your full
+completion/streak history** into the new tables, and leaves the old blob in place as a
+backup.
 
-Magic links only work if Supabase knows your site.
+## Step 6 — Deploy (free)
 
-1. Supabase → **Authentication** → **URL Configuration**.
-2. Set **Site URL** to your Netlify URL (from Step 4).
-3. Under **Redirect URLs**, add the same URL (with `/*` on the end, e.g. `https://something.netlify.app/*`). Save.
+Any static host works. Recommended: **Cloudflare Pages** or **Netlify** —
 
-## Step 6 — First run
+- Build command: `npm run build` · Output directory: `dist`
+- Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as build-time environment
+  variables in the host's dashboard.
 
-1. Open your app URL in a browser.
-2. It asks for your **Project URL** and **anon key** (Step 3) — paste them, Save. *(Stored on that device only.)*
-3. Enter your email → **Send magic link** → open the email → tap the link. You're in.
-4. Your planner loads. Every change now saves to the cloud automatically (watch the bar at the bottom).
+Then in Supabase → **Authentication → URL Configuration**, set **Site URL** to your
+deployed URL.
 
-## On every other device (home PC, phone, iPads)
+GitHub Pages also works with the caveats in `PLAN.md` (public repo on the free plan,
+`base` path in `vite.config.ts` or a custom domain).
 
-1. Open the same app URL.
-2. Paste the same Project URL + anon key once.
-3. Sign in with your email magic link.
-4. Same data, everywhere. Changes on one device appear on the others when you reopen/return to the tab.
+### Keeping the free project awake
 
----
+Supabase pauses free projects after ~7 idle days. `.github/workflows/keepalive.yml`
+pings it twice a week — add `SUPABASE_URL` and `SUPABASE_ANON_KEY` as **repo secrets**
+to enable it.
 
-## Notes
+## Every other device
 
-- **Bringing your existing data over:** if you already built up a plan in the artifact version, open it, hit **Export**, then in the synced app hit **Import** once after signing in — it'll upload to the cloud and sync from then on.
-- **Adding the app to a phone/iPad home screen:** open the URL in Safari → Share → *Add to Home Screen*. It behaves like an app.
-- **Cost:** Supabase free tier and Netlify free tier are far more than enough for a personal planner.
-- **Privacy:** only someone signed into *your* email can read your data. The anon key in the browser cannot bypass the row-level security policy.
-- **Sync model:** saves are automatic and near-instant. Pulling another device's changes happens when you reopen or switch back to the tab. It's last-write-wins, so avoid editing the same thing on two devices at the exact same second.
+Open the deployed URL → sign in with your email + password. That's it — no keys to
+paste. Changes sync per-row, and the app refetches when you return to the tab
+(add the optional Realtime publication in the migration file for live updates).
+
+On a phone/iPad: open in Safari → Share → **Add to Home Screen** — it installs as a
+PWA with offline caching.
