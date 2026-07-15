@@ -635,7 +635,8 @@ window.__runApp=function(){
         (di===TODAY_DOW?'<span class="today-badge">Today</span> ':'')+'<span class="dtag">'+esc(day.loc)+'</span></span></div>';
       var body='<div class="blocks">';
       res.forEach(function(r,bi){ var b=r.b; var tip=esc(fmt(r.start)+" · "+fmtDur(b.dur)+" — "+b.title+(b.desc?"\n"+b.desc:""));
-        body+='<div class="block s-'+b.cat+(b.cat==="open"?" is-open":"")+(r.conflict?" conflict":"")+'" tabindex="0" title="'+tip+'" data-day="'+di+'" data-blk="'+bi+'">'+
+        var hpx=Math.max(24, Math.round(b.dur/30*26)); // 30 min = 26px; 1h = 52px, 2h = 104px …
+        body+='<div class="block s-'+b.cat+(b.cat==="open"?" is-open":"")+(r.conflict?" conflict":"")+'" style="height:'+hpx+'px" tabindex="0" title="'+tip+'" data-day="'+di+'" data-blk="'+bi+'">'+
           '<div class="time">'+fmt(r.start)+'<span class="dur">'+fmtDur(b.dur)+(b.anchor?' <span class="pin">📌</span>':'')+'</span></div>'+
           '<div><div class="title">'+esc(b.title)+'</div></div></div>'; });
       body+='</div><div class="day-foot"><button class="add-block" data-add="'+di+'">+ Add block</button></div>';
