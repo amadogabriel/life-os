@@ -170,14 +170,14 @@ document.addEventListener("DOMContentLoaded", function(){
   .today-badge { font-family:var(--mono); font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:#fff; background:var(--accent); border-radius:999px; padding:1px 6px; }
 
   .blocks { display:flex; flex-direction:column; }
-  .block { display:grid; grid-template-columns:38px 1fr; gap:7px; padding:5px 8px 5px 9px; border-bottom:1px solid var(--line-soft);
+  .block { display:grid; grid-template-columns:46px 1fr; gap:7px; padding:5px 8px 5px 9px; border-bottom:1px solid var(--line-soft);
     border-left:6px solid var(--stripe,var(--line)); cursor:pointer; transition:background .12s; position:relative; }
   .block:last-child { border-bottom:0; }
   .block:hover { background:color-mix(in srgb,var(--paper) 50%,transparent); }
   .block:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
   .block .time { font-family:var(--mono); font-size:10px; color:var(--ink-faint); padding-top:1px; font-variant-numeric:tabular-nums; white-space:nowrap; }
   .block .time .dur { display:block; font-size:8.5px; opacity:.7; margin-top:0; }
-  .block .pin { color:var(--ink-faint); font-size:8px; }
+  .block .time .pin { font-size:8px; margin-left:2px; }
   .block .title { font-size:12px; font-weight:600; color:var(--ink); line-height:1.25; }
   .block .desc { display:none; }
   .block.is-open { border-left-style:dashed; }
@@ -624,7 +624,7 @@ window.__runApp=function(){
       var body='<div class="blocks">';
       res.forEach(function(r,bi){ var b=r.b; var tip=esc(fmt(r.start)+" · "+fmtDur(b.dur)+" — "+b.title+(b.desc?"\n"+b.desc:""));
         body+='<div class="block s-'+b.cat+(b.cat==="open"?" is-open":"")+(r.conflict?" conflict":"")+'" tabindex="0" title="'+tip+'" data-day="'+di+'" data-blk="'+bi+'">'+
-          '<div class="time">'+fmt(r.start)+(b.anchor?' <span class="pin">📌</span>':'')+'<span class="dur">'+fmtDur(b.dur)+'</span></div>'+
+          '<div class="time">'+fmt(r.start)+'<span class="dur">'+fmtDur(b.dur)+(b.anchor?' <span class="pin">📌</span>':'')+'</span></div>'+
           '<div><div class="title">'+esc(b.title)+'</div></div></div>'; });
       body+='</div><div class="day-foot"><button class="add-block" data-add="'+di+'">+ Add block</button></div>';
       el.innerHTML=head+body; wk.appendChild(el);
