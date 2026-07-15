@@ -1,0 +1,103 @@
+# The one CI/CD pipeline.
+#
+#   pull_request      → checks + e2e + build (no deploy)
+#   push to main      → checks + e2e + build → deploy to GitHub Pages
+#                       → tagged GitHub Release (v<major.minor>.<run#>)
+#
+# The Supabase URL and publishable (anon-role) key are safe to embed in a
+# client build — data access is enforced by row-level security.
+name: Pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # release tags
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Compute version
+        id: version
+        run: |
+          MM=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
+          echo "version=v${MM}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - run: npm run build
+        env:
+          VITE_BASE: /life-os/
+          VITE_APP_VERSION: ${{ steps.version.outputs.version }}
+          VITE_SUPABASE_URL: https://wzmhasemthrlagdsigbl.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable__vkLjkzkJbFvNuskCyUNQA_kGn5Roj6
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [checks, e2e, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  release:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ needs.build.outputs.version }}" \
+            --target "$GITHUB_SHA" \
+            --title "${{ needs.build.outputs.version }}" \
+            --generate-notes
