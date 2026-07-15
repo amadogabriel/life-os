@@ -95,6 +95,7 @@ function PlannerShell({
             style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}
           >
             {status}
+            {import.meta.env.VITE_APP_VERSION ? ` · ${import.meta.env.VITE_APP_VERSION}` : ''}
           </span>
         </div>
         <div className="mt-2 flex gap-0.5 overflow-x-auto border-b" style={{ borderColor: 'var(--line)' }}>
