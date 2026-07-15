@@ -14,15 +14,11 @@
   #gate button{background:#0f5c5b;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-size:14px;font-weight:600;cursor:pointer;}
   #gate button.link{background:transparent;color:#7c878d;padding:8px 0;margin-top:10px;display:block;}
   #gate #loginMsg{margin-top:12px;font-size:13px;color:#6cc48a;}
-  #syncbar{position:fixed;bottom:0;left:0;right:0;background:#1a2127;border-top:1px solid #2c353c;color:#aeb8bd;font-family:-apple-system,system-ui,sans-serif;font-size:12px;padding:7px 14px;display:none;gap:12px;align-items:center;z-index:900;}
-  #syncbar .who{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  #syncbar button{background:transparent;border:1px solid #2c353c;color:#e7ecee;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;}
-  @media (prefers-color-scheme: light){ #gate{background:#f3f5f4;color:#1a2530;} #gate .card{background:#fff;border-color:#dbe0e0;} #gate p{color:#4a5763;} #gate input{background:#f3f5f4;border-color:#dbe0e0;color:#1a2530;} #syncbar{background:#fff;border-color:#dbe0e0;color:#4a5763;} #syncbar button{color:#1a2530;border-color:#dbe0e0;} }
+  @media (prefers-color-scheme: light){ #gate{background:#f3f5f4;color:#1a2530;} #gate .card{background:#fff;border-color:#dbe0e0;} #gate p{color:#4a5763;} #gate input{background:#f3f5f4;border-color:#dbe0e0;color:#1a2530;} }
 </style>
 </head>
 <body>
 <div id="gate"></div>
-<div id="syncbar"><span class="who" id="syncWho"></span><span id="syncStatus"></span><button id="setPass">Set password</button><button id="signOut">Sign out</button></div>
 <script>
 document.addEventListener("DOMContentLoaded", function(){
   var APPKEY="jon-planner-v3", CFG="planner-supabase-cfg";
@@ -71,11 +67,11 @@ document.addEventListener("DOMContentLoaded", function(){
       else if(!r.error && !r.data){ var local=localStorage.getItem(APPKEY); if(local){ return sb.from("planners").upsert({ user_id:userId, data:JSON.parse(local) }); } }
     }); }
   function startApp(){ hideGate();
-    var bar=document.getElementById("syncbar"); bar.style.display="flex";
-    document.getElementById("syncWho").textContent=userEmail; setStatus("synced");
-    document.getElementById("signOut").onclick=function(){ sb.auth.signOut().then(function(){ location.reload(); }); };
-    document.getElementById("setPass").onclick=function(){ var p=prompt("Set a password for "+userEmail+" (min 6 characters). Use it to sign in on your other devices:"); if(!p)return; if(p.length<6){ setStatus("password too short"); return; }
+    var em=document.getElementById("acctEmail"); if(em) em.textContent=userEmail; setStatus("synced");
+    var so=document.getElementById("signOut"); if(so) so.onclick=function(){ sb.auth.signOut().then(function(){ location.reload(); }); };
+    var sp=document.getElementById("setPass"); if(sp) sp.onclick=function(){ var p=prompt("Set a password for "+userEmail+" (min 6 characters). Use it to sign in on your other devices:"); if(!p)return; if(p.length<6){ setStatus("password too short"); return; }
       setStatus("updating…"); sb.auth.updateUser({ password:p }).then(function(r){ setStatus(r.error?("error: "+r.error.message):"password set ✓"); }); };
+    var cr=document.getElementById("acctReset"); if(cr) cr.onclick=function(){ localStorage.removeItem(CFG); boot(); };
     if(window.__runApp && !window.__appStarted){ window.__appStarted=true; window.__runApp(); }
     // pull latest when returning to the tab (other devices' changes)
     document.addEventListener("visibilitychange", function(){ if(document.hidden || !userId) return;
@@ -170,8 +166,8 @@ document.addEventListener("DOMContentLoaded", function(){
   .today-badge { font-family:var(--mono); font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:#fff; background:var(--accent); border-radius:999px; padding:1px 6px; }
 
   .blocks { display:flex; flex-direction:column; }
-  .block { display:grid; grid-template-columns:46px 1fr; gap:7px; padding:5px 8px 5px 9px; border-bottom:1px solid var(--line-soft);
-    border-left:6px solid var(--stripe,var(--line)); cursor:pointer; transition:background .12s; position:relative; }
+  .block { display:grid; grid-template-columns:46px 1fr; gap:7px; padding:4px 8px 4px 9px; border-bottom:1px solid var(--line-soft);
+    border-left:6px solid var(--stripe,var(--line)); cursor:pointer; transition:background .12s; position:relative; overflow:hidden; align-content:start; }
   .block:last-child { border-bottom:0; }
   .block:hover { background:color-mix(in srgb,var(--paper) 50%,transparent); }
   .block:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
@@ -360,6 +356,7 @@ document.addEventListener("DOMContentLoaded", function(){
       <button class="tab" data-view="stats">Stats</button>
       <button class="tab" data-view="report">Report</button>
       <button class="tab" data-view="design">Design</button>
+      <button class="tab" data-view="account">Account</button>
     </div>
   </header>
 
@@ -417,6 +414,21 @@ document.addEventListener("DOMContentLoaded", function(){
     <table class="quota-table"><thead><tr><th>Commitment</th><th>Done</th><th style="width:240px">Share</th></tr></thead><tbody id="repHours"></tbody></table>
     <div class="subhead">Habits over the fortnight</div>
     <table class="quota-table"><thead><tr><th>Habit</th><th>Done / target</th><th>Rate</th><th>Current streak</th></tr></thead><tbody id="repHabits"></tbody></table>
+  </div>
+
+  <!-- ACCOUNT -->
+  <div class="view" id="view-account">
+    <div class="view-head"><h2>Account</h2><p>Your login and cloud sync.</p></div>
+    <table class="quota-table"><tbody>
+      <tr><td>Signed in as</td><td style="text-align:right" id="acctEmail">—</td></tr>
+      <tr><td>Sync status</td><td style="text-align:right" id="syncStatus">—</td></tr>
+    </tbody></table>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;">
+      <button class="btn" id="setPass">Set / change password</button>
+      <button class="btn ghost" id="acctReset">Change sync settings</button>
+      <button class="btn ghost danger" id="signOut">Sign out</button>
+    </div>
+    <p style="color:var(--ink-faint);font-size:13px;margin-top:14px;max-width:64ch;">Set a password to sign in on your other devices without email. "Change sync settings" clears this device's saved Supabase URL and key.</p>
   </div>
 </div>
 
