@@ -9,10 +9,9 @@ import { WeekView } from './features/week/WeekView'
 import { HabitsView } from './features/habits/HabitsView'
 import { StatsView } from './features/stats/StatsView'
 import { ReportView } from './features/report/ReportView'
-import { DesignView } from './features/design/DesignView'
 import { AccountView } from './features/account/AccountView'
 
-const TABS = ['Today', 'Week', 'Habits', 'Stats', 'Report', 'Design', 'Account'] as const
+const TABS = ['Today', 'Week', 'Habits', 'Stats', 'Report', 'Account'] as const
 type Tab = (typeof TABS)[number]
 
 export interface ViewProps {
@@ -112,7 +111,6 @@ function PlannerShell({
         {tab === 'Habits' && <HabitsView {...viewProps} />}
         {tab === 'Stats' && <StatsView {...viewProps} />}
         {tab === 'Report' && <ReportView {...viewProps} />}
-        {tab === 'Design' && <DesignView {...viewProps} />}
         {tab === 'Account' && <AccountView data={data} email={email} demo={demo} />}
       </main>
     </div>
