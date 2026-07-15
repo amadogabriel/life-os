@@ -163,9 +163,10 @@ document.addEventListener("DOMContentLoaded", function(){
   .hourlab { position:absolute; right:6px; font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); font-variant-numeric:tabular-nums; transform:translateY(-0.55em); }
   .day { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
   .day.today { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
-  .day-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:8px 10px; border-bottom:1px solid var(--line);
+  .day-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:0 10px; height:38px; box-sizing:border-box; white-space:nowrap; border-bottom:1px solid var(--line);
     background:linear-gradient(to right,color-mix(in srgb,var(--paper) 55%,transparent),transparent); }
-  .day-head .dname { font-family:var(--serif); font-size:14px; font-weight:600; }
+  .day.today .day-head .dname { color:var(--accent); }
+  .day-head .dname { font-family:var(--serif); font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; }
   .day-head .dtag { font-family:var(--mono); font-size:8.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); border:1px solid var(--line); border-radius:999px; padding:1px 6px; }
   .today-badge { font-family:var(--mono); font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:#fff; background:var(--accent); border-radius:999px; padding:1px 6px; }
 
@@ -648,8 +649,7 @@ window.__runApp=function(){
     state.days.forEach(function(day,di){
       var res=resolved[di];
       var el=document.createElement("div"); el.className="day"+(di===TODAY_DOW?" today":"");
-      var head='<div class="day-head"><span class="dname">'+esc(day.name)+'</span><span>'+
-        (di===TODAY_DOW?'<span class="today-badge">Today</span> ':'')+'<span class="dtag">'+esc(day.loc)+'</span></span></div>';
+      var head='<div class="day-head"><span class="dname">'+esc(day.name)+'</span><span class="dtag">'+esc(day.loc)+'</span></div>';
       var body='<div class="blocks" style="height:'+spanPx+'px;background:'+gridBg+'">';
       res.forEach(function(r,bi){ var b=r.b; var tip=esc(fmt(r.start)+" · "+fmtDur(b.dur)+" — "+b.title+(b.desc?"\n"+b.desc:""));
         var top=Math.round((r.start-axisStart)*PXMIN), hpx=Math.round(b.dur*PXMIN);
