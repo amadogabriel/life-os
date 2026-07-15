@@ -317,7 +317,11 @@ document.addEventListener("DOMContentLoaded", function(){
   .wakebox input { font-family:var(--mono); font-size:13px; background:var(--paper); border:1px solid var(--line); border-radius:7px; padding:5px 8px; color:var(--ink); }
   #dayItems { display:flex; flex-direction:column; min-height:90px; }
   #dayItems.dragover { background:color-mix(in srgb,var(--accent) 9%,var(--card)); outline:2px dashed var(--accent); outline-offset:-6px; }
-  .ditem { display:grid; grid-template-columns:52px 1fr auto; gap:12px; align-items:center; padding:9px 16px; border-bottom:1px solid var(--line-soft); border-left:3px solid var(--stripe,var(--line)); }
+  .ditem { display:grid; grid-template-columns:52px 1fr auto; gap:12px; align-items:start; padding:9px 16px; border-top:1px solid var(--line-soft); border-left:3px solid var(--stripe,var(--line)); }
+  .ditem .time { margin-top:-13px; }
+  .dayend { display:grid; grid-template-columns:52px 1fr; gap:12px; padding:0 16px; border-top:1px solid var(--line); }
+  .dayend .time { font-family:var(--mono); font-size:12px; color:var(--ink-faint); margin-top:-8px; font-variant-numeric:tabular-nums; }
+  .dayend .nm { font-size:11px; color:var(--ink-faint); margin-top:-8px; text-transform:uppercase; letter-spacing:.06em; }
   .ditem:last-child { border-bottom:0; }
   .ditem .time { font-family:var(--mono); font-size:12px; color:var(--ink-faint); font-variant-numeric:tabular-nums; }
   .ditem .nm { font-size:13.5px; font-weight:600; }
@@ -888,7 +892,13 @@ window.__runApp=function(){
     { id:nid("k"), name:"WQU", cat:"wqu", tasks:[tnew("Clear activities"),tnew("Quiz / assessment")] },
     { id:nid("k"), name:"Routine", cat:"life", tasks:[tnew("Sleep"),tnew("Commute"),tnew("Eat / meal"),tnew("Shower / prep"),tnew("Family / reset"),tnew("Exercise")] }
   ]; }
-  function defaultDesign(){ return { wake:300, items:[] }; }
+  function defaultDesign(){ return { wake:300, items:[
+    { id:nid("i"), name:"Wake · breakfast", cat:"life", mins:60 },
+    { id:nid("i"), name:"— open —", cat:"open", mins:360 },
+    { id:nid("i"), name:"Lunch", cat:"life", mins:60 },
+    { id:nid("i"), name:"— open —", cat:"open", mins:480 },
+    { id:nid("i"), name:"Sleep", cat:"life", mins:480 }
+  ] }; }
 
   function labelForCat(c){ for(var i=0;i<state.buckets.length;i++){ if(state.buckets[i].cat===c) return state.buckets[i].name; } return CATS[c]||c; }
 
@@ -913,6 +923,8 @@ window.__runApp=function(){
         '<button data-act="del" data-i="'+i+'" class="x" title="Remove">✕</button></div>';
       list.appendChild(row); cur+=m;
     });
+    if(d.items.length){ var endRow=document.createElement("div"); endRow.className="dayend";
+      endRow.innerHTML='<div class="time">'+fmt(cur)+'</div><div class="nm">end of day</div>'; list.appendChild(endRow); }
     if(!d.items.length) list.innerHTML='<div class="empty">Drag a task here, or tap a task chip to add. Then use − / ＋ for 30-min steps.</div>';
     // budget (minutes)
     var byCat={}; d.items.forEach(function(it){ byCat[it.cat]=(byCat[it.cat]||0)+itemMins(it); });
@@ -953,7 +965,7 @@ window.__runApp=function(){
   var clearArmed=false;
   document.getElementById("clearDay").onclick=function(){ if(!state.design.items.length)return;
     if(!clearArmed){ clearArmed=true; flashBtn(this,"Tap again to clear"); setTimeout(function(){clearArmed=false;},1800); return; }
-    clearArmed=false; state.design.items=[]; save(); renderDesign(); };
+    clearArmed=false; state.design=defaultDesign(); save(); renderDesign(); };
   document.getElementById("addBucket").onclick=function(){ openBucket(null); };
   function flashBtn(btn,msg){ if(btn._t)clearTimeout(btn._t); if(!btn._o)btn._o=btn.textContent; btn.textContent=msg; btn._t=setTimeout(function(){ btn.textContent=btn._o; btn._o=null; },1700); }
   document.getElementById("applyWeek").onclick=function(){ var sel=+document.getElementById("applyDay").value;
