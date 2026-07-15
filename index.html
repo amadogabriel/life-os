@@ -22,7 +22,7 @@
 </head>
 <body>
 <div id="gate"></div>
-<div id="syncbar"><span class="who" id="syncWho"></span><span id="syncStatus"></span><button id="signOut">Sign out</button></div>
+<div id="syncbar"><span class="who" id="syncWho"></span><span id="syncStatus"></span><button id="setPass">Set password</button><button id="signOut">Sign out</button></div>
 <script>
 document.addEventListener("DOMContentLoaded", function(){
   var APPKEY="jon-planner-v3", CFG="planner-supabase-cfg";
@@ -49,16 +49,21 @@ document.addEventListener("DOMContentLoaded", function(){
     document.getElementById("cfgSave").onclick=function(){ var url=document.getElementById("cfgUrl").value.trim(), key=document.getElementById("cfgKey").value.trim();
       if(!url||!key)return; localStorage.setItem(CFG,JSON.stringify({url:url,key:key})); boot(); };
   }
+  function afterAuth(user){ userId=user.id; userEmail=user.email||""; pull().then(startApp); }
   function loginScreen(){ showGate(
-    '<h2>Sign in</h2><p>We\'ll email you a one-tap magic link. Open it on this device to sign in — do this once per device.</p>'+
+    '<h2>Sign in</h2><p>Email + password — no emails, works on every device. First time on this account? Tap <b>Create account</b>.</p>'+
     '<input id="loginEmail" type="email" placeholder="you@email.com" autocomplete="email">'+
-    '<button id="loginBtn">Send magic link</button>'+
+    '<input id="loginPass" type="password" placeholder="password (min 6 chars)" autocomplete="current-password">'+
+    '<button id="loginBtn">Sign in</button>'+
     '<div id="loginMsg"></div>'+
+    '<button id="signupBtn" class="link">Create account with this email + password</button>'+
     '<button id="cfgReset" class="link">Change sync settings</button>');
-    document.getElementById("loginBtn").onclick=function(){ var email=document.getElementById("loginEmail").value.trim(); if(!email)return;
-      document.getElementById("loginMsg").textContent="Sending…";
-      sb.auth.signInWithOtp({ email:email, options:{ emailRedirectTo: location.origin+location.pathname } })
-        .then(function(r){ document.getElementById("loginMsg").textContent = r.error ? ("Error: "+r.error.message) : "Check your email for the link."; }); };
+    function creds(){ return { email:document.getElementById("loginEmail").value.trim(), password:document.getElementById("loginPass").value }; }
+    function msg(t){ document.getElementById("loginMsg").textContent=t; }
+    document.getElementById("loginBtn").onclick=function(){ var c=creds(); if(!c.email||!c.password)return; msg("Signing in…");
+      sb.auth.signInWithPassword(c).then(function(r){ if(r.error){ msg("Error: "+r.error.message); } else { afterAuth(r.data.user); } }); };
+    document.getElementById("signupBtn").onclick=function(){ var c=creds(); if(!c.email||c.password.length<6){ msg("Enter an email and a password of at least 6 characters."); return; } msg("Creating account…");
+      sb.auth.signUp(c).then(function(r){ if(r.error){ msg("Error: "+r.error.message); } else if(r.data.session){ afterAuth(r.data.user); } else { msg("Account made, but email confirmation is on. Turn it off in Supabase (Authentication → Providers → Email → Confirm email), then sign in."); } }); };
     document.getElementById("cfgReset").onclick=function(){ localStorage.removeItem(CFG); boot(); };
   }
   function pull(){ return sb.from("planners").select("data").eq("user_id",userId).maybeSingle().then(function(r){
@@ -69,6 +74,8 @@ document.addEventListener("DOMContentLoaded", function(){
     var bar=document.getElementById("syncbar"); bar.style.display="flex";
     document.getElementById("syncWho").textContent=userEmail; setStatus("synced");
     document.getElementById("signOut").onclick=function(){ sb.auth.signOut().then(function(){ location.reload(); }); };
+    document.getElementById("setPass").onclick=function(){ var p=prompt("Set a password for "+userEmail+" (min 6 characters). Use it to sign in on your other devices:"); if(!p)return; if(p.length<6){ setStatus("password too short"); return; }
+      setStatus("updating…"); sb.auth.updateUser({ password:p }).then(function(r){ setStatus(r.error?("error: "+r.error.message):"password set ✓"); }); };
     if(window.__runApp && !window.__appStarted){ window.__appStarted=true; window.__runApp(); }
     // pull latest when returning to the tab (other devices' changes)
     document.addEventListener("visibilitychange", function(){ if(document.hidden || !userId) return;
