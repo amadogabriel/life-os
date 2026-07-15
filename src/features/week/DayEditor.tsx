@@ -1,6 +1,8 @@
-import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
+import { useState } from 'react'
+import type { Bucket, PlannerActions, PlannerData } from '../../lib/queries/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
+import { BucketModal } from '../design/BucketModal'
 
 /** Design-a-day-style editor for one weekday: the day's blocks on a
  *  proportional timeline (drag to reorder, drag the bottom edge to resize in
@@ -18,6 +20,7 @@ export function DayEditor({
   onClose: () => void
   onEditBlock: (blockId: string) => void
 }) {
+  const [editingBucket, setEditingBucket] = useState<Bucket | 'new' | null>(null)
   const blocks = data.blocksByDow[dow]
 
   async function addFromChip(bucketId: string, taskId: string): Promise<string | null> {
@@ -59,6 +62,9 @@ export function DayEditor({
                   <span className="dot" />
                   {bk.name}
                 </span>
+                <button className="bk-edit" title="Edit bucket" onClick={() => setEditingBucket(bk)}>
+                  ⋯
+                </button>
               </div>
               <div className="flex flex-wrap gap-1.5 p-[11px_13px]">
                 {bk.tasks.map((tk) => (
@@ -88,8 +94,25 @@ export function DayEditor({
           >
             + Custom block
           </button>
+          <button className="addbucket shrink-0" onClick={() => setEditingBucket('new')}>
+            + New bucket
+          </button>
         </div>
       </div>
+      {editingBucket && (
+        <BucketModal
+          bucket={editingBucket === 'new' ? null : editingBucket}
+          onSave={async (b) => {
+            await actions.saveBucket(b, data.buckets.length)
+            setEditingBucket(null)
+          }}
+          onDelete={async (id) => {
+            await actions.deleteBucket(id)
+            setEditingBucket(null)
+          }}
+          onClose={() => setEditingBucket(null)}
+        />
+      )}
       <div className="mt-[14px] flex justify-end">
         <button className="btn primary" onClick={onClose}>
           Done

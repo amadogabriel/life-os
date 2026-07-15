@@ -32,18 +32,14 @@ export function WeekView({ data, actions, today }: ViewProps) {
   const hourLabels: number[] = []
   for (let mm = Math.ceil(axisStart / 60) * 60; mm <= axisEnd; mm += 60) hourLabels.push(mm)
 
-  async function addBlock(dow: number) {
-    const id = await actions.addBlock(dow, data.blocksByDow[dow].length)
-    setEditing({ dow, blockId: id })
-  }
 
   return (
     <div>
       <div className="view-head mb-[18px]">
         <h2>The week</h2>
         <p>
-          Your standing rhythm and this week's plan in one place. Click a block to edit; 📌 anchors hold
-          their time, everything between re-flows.
+          Your standing rhythm and this week's plan in one place. Click a day to design it — drag blocks to
+          move and resize them; 📌 anchors hold their time, everything between re-flows.
         </p>
       </div>
       <div className="mb-5 flex flex-wrap gap-x-[15px] gap-y-[7px]">
@@ -93,11 +89,11 @@ export function WeekView({ data, actions, today }: ViewProps) {
                     style={{ top, height: hpx }}
                     tabIndex={0}
                     title={tip}
-                    onClick={() => setEditing({ dow: di, blockId: b.id })}
+                    onClick={() => setEditingDay(di)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        setEditing({ dow: di, blockId: b.id })
+                        setEditingDay(di)
                       }
                     }}
                   >
@@ -110,8 +106,8 @@ export function WeekView({ data, actions, today }: ViewProps) {
               })}
             </div>
             <div className="p-[6px_8px]">
-              <button className="add-block" onClick={() => addBlock(di)}>
-                + Add block
+              <button className="add-block" onClick={() => setEditingDay(di)}>
+                ✎ Design day
               </button>
             </div>
           </div>
