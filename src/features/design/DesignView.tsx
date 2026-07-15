@@ -1,13 +1,13 @@
-import { useState, type DragEvent } from 'react'
+import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { CATS, dowMon, fmt, fmtDur, parseTime, type Cat } from '../../lib/planner'
 import { BucketModal } from './BucketModal'
+import { TimelineEditor } from '../../components/TimelineEditor'
 import type { Bucket } from '../../lib/queries/planner'
 
 export function DesignView({ data, actions, today }: ViewProps) {
   const [editingBucket, setEditingBucket] = useState<Bucket | 'new' | null>(null)
   const [applyDow, setApplyDow] = useState(dowMon(today))
-  const [dragOver, setDragOver] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
   const [applied, setApplied] = useState('')
 
@@ -19,24 +19,12 @@ export function DesignView({ data, actions, today }: ViewProps) {
   const labelForCat = (c: Cat) => data.buckets.find((bk) => bk.cat === c)?.name ?? CATS[c] ?? c
   const h1 = (m: number) => Math.round((m / 60) * 10) / 10
 
-  function addFromChip(bucketId: string, taskId: string) {
+  async function addFromChip(bucketId: string, taskId: string): Promise<string | null> {
     const bucket = data.buckets.find((bk) => bk.id === bucketId)
     const task = bucket?.tasks.find((t) => t.id === taskId)
-    if (!bucket || !task) return
-    actions.addDesignItem({ name: task.name, cat: bucket.cat }, items.length)
+    if (!bucket || !task) return null
+    return actions.addDesignItem({ name: task.name, cat: bucket.cat }, items.length)
   }
-
-  function onDrop(e: DragEvent) {
-    e.preventDefault()
-    setDragOver(false)
-    const s = e.dataTransfer.getData('text/plain')
-    if (s) {
-      const [bk, task] = s.split('|')
-      addFromChip(bk, task)
-    }
-  }
-
-  let cursor = data.designWakeMin
 
   return (
     <div>
@@ -81,66 +69,30 @@ export function DesignView({ data, actions, today }: ViewProps) {
                 {confirmClear ? 'Tap again to clear' : 'Clear'}
               </button>
             </div>
-            <div
-              className={'day-items flex min-h-[90px] flex-col' + (dragOver ? ' dragover' : '')}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDragOver(true)
+            <TimelineEditor
+              items={items.map((it) => ({
+                id: it.id,
+                cat: it.cat,
+                title: it.name,
+                startMin: 0,
+                durMin: it.mins,
+                anchored: false,
+              }))}
+              startAt={data.designWakeMin}
+              emptyHint="Drag a task here, or tap a task chip to add."
+              onSetMins={(id, mins) => actions.updateDesignItem(id, { mins })}
+              onReorder={(ids) => actions.reorderDesignItems(ids)}
+              onRemove={(id) => actions.deleteDesignItem(id)}
+              onDropExternal={async (payload, at) => {
+                const [bk, task] = payload.split('|')
+                const id = await addFromChip(bk, task)
+                if (id && at < items.length) {
+                  const ids = items.map((it) => it.id)
+                  ids.splice(at, 0, id)
+                  await actions.reorderDesignItems(ids)
+                }
               }}
-              onDragLeave={(e) => {
-                if (e.target === e.currentTarget) setDragOver(false)
-              }}
-              onDrop={onDrop}
-            >
-              {items.length === 0 && (
-                <div className="p-[28px_16px] text-center text-[13px]" style={{ color: 'var(--ink-faint)' }}>
-                  Drag a task here, or tap a task chip to add. Then use − / ＋ for 30-min steps.
-                </div>
-              )}
-              {items.map((it, i) => {
-                const start = cursor
-                cursor += it.mins
-                return (
-                  <div key={it.id} className={`ditem s-${it.cat}`}>
-                    <div className="time">{fmt(start)}</div>
-                    <div className="nm">{it.name}</div>
-                    <div className="stp">
-                      <button
-                        title="30 min less"
-                        onClick={() => actions.updateDesignItem(it.id, { mins: Math.max(30, it.mins - 30) })}
-                      >
-                        −
-                      </button>
-                      <span className="hrs">{fmtDur(it.mins)}</span>
-                      <button
-                        title="30 min more"
-                        onClick={() => actions.updateDesignItem(it.id, { mins: Math.min(960, it.mins + 30) })}
-                      >
-                        ＋
-                      </button>
-                      <button title="Earlier" onClick={() => i > 0 && actions.swapDesignItems(it, items[i - 1])}>
-                        ↑
-                      </button>
-                      <button
-                        title="Later"
-                        onClick={() => i < items.length - 1 && actions.swapDesignItems(it, items[i + 1])}
-                      >
-                        ↓
-                      </button>
-                      <button className="x" title="Remove" onClick={() => actions.deleteDesignItem(it.id)}>
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-              {items.length > 0 && (
-                <div className="dayend">
-                  <div className="time">{fmt(cursor)}</div>
-                  <div className="nm">end of day</div>
-                </div>
-              )}
-            </div>
+            />
             <div className="border-t p-[14px_16px]" style={{ borderColor: 'var(--line)' }}>
               <div className="budgetlabel">
                 {h1(total)} / 24 h planned ·{' '}

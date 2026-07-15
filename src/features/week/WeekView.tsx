@@ -2,11 +2,13 @@ import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { CATS, dowMon, fmt, fmtDur, resolve, type Cat } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from './BlockModal'
+import { DayEditor } from './DayEditor'
 
 const PXMIN = 38 / 30 // 30 min = 38px, shared across all days
 
 export function WeekView({ data, actions, today }: ViewProps) {
   const [editing, setEditing] = useState<EditingBlock | null>(null)
+  const [editingDay, setEditingDay] = useState<number | null>(null)
   const todayDow = dowMon(today)
 
   const resolved = data.blocksByDow.map((blocks) => resolve(blocks))
@@ -71,7 +73,12 @@ export function WeekView({ data, actions, today }: ViewProps) {
           <div key={di} className={'day' + (di === todayDow ? ' today' : '')}>
             <div className="day-head">
               <span className="dname">{day.name}</span>
-              <span className="dtag">{day.loc}</span>
+              <span className="flex items-center gap-1">
+                <span className="dtag">{day.loc}</span>
+                <button className="bk-edit" title="Edit day" onClick={() => setEditingDay(di)}>
+                  ✎
+                </button>
+              </span>
             </div>
             <div className="blocks" style={{ height: spanPx, background: gridBg }}>
               {resolved[di].map(({ block: b, start, conflict }) => {
@@ -110,6 +117,15 @@ export function WeekView({ data, actions, today }: ViewProps) {
           </div>
         ))}
       </div>
+      {editingDay !== null && (
+        <DayEditor
+          data={data}
+          actions={actions}
+          dow={editingDay}
+          onClose={() => setEditingDay(null)}
+          onEditBlock={(blockId) => setEditing({ dow: editingDay, blockId })}
+        />
+      )}
       {editing && (
         <BlockModal data={data} actions={actions} editing={editing} onClose={() => setEditing(null)} />
       )}

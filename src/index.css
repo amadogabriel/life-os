@@ -180,6 +180,7 @@ body {
 .scrim { position: fixed; inset: 0; background: rgba(10, 14, 17, 0.5); display: flex; align-items: center; justify-content: center; padding: 18px; z-index: 50; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 14px; width: 100%; max-width: 440px; max-height: 90vh; overflow: auto; padding: 20px 22px; }
 .modal h3 { font-family: var(--serif); font-size: 19px; margin: 0 0 16px; font-weight: 600; }
+.modal.wide { max-width: 760px; }
 .field { margin-bottom: 13px; }
 .field label { display: block; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 5px; }
 .field input[type='text'], .field input[type='email'], .field input[type='password'], .field textarea, .field select, .field input[type='time'], .field input[type='number'] {
@@ -207,9 +208,42 @@ body {
 .wakebox { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); }
 .wakebox input { font-family: var(--mono); font-size: 13px; background: var(--paper); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; color: var(--ink); }
 .day-items.dragover { background: color-mix(in srgb, var(--accent) 9%, var(--card)); outline: 2px dashed var(--accent); outline-offset: -6px; }
-.ditem { display: grid; grid-template-columns: 52px 1fr auto; gap: 12px; align-items: start; padding: 9px 16px; border-top: 1px solid var(--line-soft); border-left: 3px solid var(--stripe, var(--line)); }
+.ditem { display: grid; grid-template-columns: 52px 1fr auto; gap: 12px; align-items: start; padding: 9px 16px; border-top: 1px solid var(--line-soft); border-left: 3px solid var(--stripe, var(--line)); position: relative; }
+.ditem[draggable='true'] { cursor: grab; }
+.ditem.dragging { opacity: 0.45; }
+.ditem.drop-before, .dayend.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.ditem .rz { position: absolute; left: 0; right: 0; bottom: -4px; height: 9px; cursor: ns-resize; touch-action: none; z-index: 1; }
+.ditem .rz::after { content: ''; display: block; margin: 3px auto 0; width: 28px; height: 3px; border-radius: 2px; background: transparent; }
+.ditem:hover .rz::after { background: var(--line); }
+.ditem .rz:hover::after, .ditem .rz:active::after { background: var(--accent); }
 .ditem .time { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; margin-top: -13px; }
 .ditem .nm { font-size: 13.5px; font-weight: 600; }
+/* proportional day-timeline editor (shared by Week day editor + Design) */
+.tl { position: relative; }
+.tl-hourlab { left: 6px; right: auto; }
+.tlcard { position: absolute; left: 52px; right: 10px; background: color-mix(in srgb, var(--stripe) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--stripe) 30%, var(--line)); border-left: 6px solid var(--stripe); border-radius: 8px; padding: 3px 8px 3px 9px; overflow: hidden; cursor: grab; }
+.tlcard .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.tlcard .title { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.25; }
+.tlcard.compact { padding-top: 1px; padding-bottom: 1px; }
+.tlcard.compact .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tlcard.dragging { opacity: 0.45; }
+.tlcard.conflict { box-shadow: inset 2px 0 0 var(--danger); }
+.tlcard .stp button { width: 22px; height: 22px; }
+.tlcard .rz { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; touch-action: none; }
+.tlcard .rz::after { content: ''; display: block; margin: 3px auto 0; width: 28px; height: 3px; border-radius: 2px; background: transparent; }
+.tlcard:hover .rz::after { background: var(--line); }
+.tlcard .rz:hover::after, .tlcard .rz:active::after { background: var(--accent); }
+.tlcard .rzt { position: absolute; left: 0; right: 0; top: 0; height: 8px; cursor: ns-resize; touch-action: none; }
+.tlcard .rzt::after { content: ''; display: block; margin: 2px auto 0; width: 28px; height: 3px; border-radius: 2px; background: transparent; }
+.tlcard:hover .rzt::after { background: var(--line); }
+.tlcard .rzt:hover::after, .tlcard .rzt:active::after { background: var(--accent); }
+.tlgap { position: absolute; left: 52px; right: 10px; border: 1px dashed var(--line); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-style: italic; color: var(--ink-faint); overflow: hidden; }
+.tlend { position: absolute; left: 52px; right: 10px; border-top: 1px solid var(--line); padding-top: 2px; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
+.tl-indicator { position: absolute; left: 48px; right: 6px; border-top: 2px solid var(--accent); z-index: 5; pointer-events: none; }
+
+.dgap { display: grid; grid-template-columns: 52px 1fr; gap: 12px; padding: 3px 16px; border-top: 1px dashed var(--line); }
+.dgap .time { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.dgap .nm { font-size: 11px; color: var(--ink-faint); font-style: italic; }
 .dayend { display: grid; grid-template-columns: 52px 1fr; gap: 12px; padding: 0 16px; border-top: 1px solid var(--line); }
 .dayend .time { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); margin-top: -8px; font-variant-numeric: tabular-nums; }
 .dayend .nm { font-size: 11px; color: var(--ink-faint); margin-top: -8px; text-transform: uppercase; letter-spacing: 0.06em; }

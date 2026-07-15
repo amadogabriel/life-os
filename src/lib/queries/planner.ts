@@ -203,13 +203,15 @@ export interface PlannerActions {
   ): Promise<void>
   deleteBlock(id: string): Promise<void>
   swapBlocks(a: Block, b: Block): Promise<void>
+  reorderBlocks(dow: number, orderedIds: string[]): Promise<void>
   saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
   deleteHabit(id: string): Promise<void>
   saveBucket(bucket: { id?: string; name: string; cat: Cat; tasks: string[] }, position: number): Promise<void>
   deleteBucket(id: string): Promise<void>
-  addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<void>
+  addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<string>
   updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
   swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
+  reorderDesignItems(orderedIds: string[]): Promise<void>
   deleteDesignItem(id: string): Promise<void>
   resetDesign(): Promise<void>
   setWake(min: number): Promise<void>
@@ -280,6 +282,11 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored'>>) {
+      // Optimistic: rapid ± duration taps must see each other's result.
+      patch((data) => ({
+        ...data,
+        blocksByDow: data.blocksByDow.map((bs) => bs.map((b) => (b.id === id ? { ...b, ...fields } : b))),
+      }))
       const { error } = await supabase
         .from('blocks')
         .update({
@@ -307,6 +314,25 @@ export function usePlannerActions(userId: string): PlannerActions {
       const r1 = await supabase.from('blocks').update({ position: b.position }).eq('id', a.id)
       const r2 = await supabase.from('blocks').update({ position: a.position }).eq('id', b.id)
       if (r1.error || r2.error) throw r1.error ?? r2.error
+      await invalidate()
+    },
+
+    /** Re-number a day's blocks to match the given id order (drag reorder). */
+    async reorderBlocks(dow: number, orderedIds: string[]) {
+      patch((data) => {
+        const blocks = [...data.blocksByDow[dow]]
+          .sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id))
+          .map((b, position) => ({ ...b, position }))
+        return { ...data, blocksByDow: data.blocksByDow.map((bs, i) => (i === dow ? blocks : bs)) }
+      })
+      const results = await Promise.all(
+        orderedIds.map((id, position) => supabase.from('blocks').update({ position }).eq('id', id)),
+      )
+      const failed = results.find((r) => r.error)
+      if (failed) {
+        invalidate()
+        throw failed.error
+      }
       await invalidate()
     },
 
@@ -360,14 +386,21 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async addDesignItem(item: { name: string; cat: Cat }, position: number) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('design_items')
         .insert({ user_id: userId, position, name: item.name, cat: item.cat, mins: 60 })
+        .select('id')
+        .single()
       if (error) throw error
       await invalidate()
+      return data.id
     },
 
     async updateDesignItem(id: string, fields: { mins?: number; position?: number }) {
+      patch((data) => ({
+        ...data,
+        designItems: data.designItems.map((it) => (it.id === id ? { ...it, ...fields } : it)),
+      }))
       const { error } = await supabase.from('design_items').update(fields).eq('id', id)
       if (error) throw error
       await invalidate()
@@ -377,6 +410,25 @@ export function usePlannerActions(userId: string): PlannerActions {
       const r1 = await supabase.from('design_items').update({ position: b.position }).eq('id', a.id)
       const r2 = await supabase.from('design_items').update({ position: a.position }).eq('id', b.id)
       if (r1.error || r2.error) throw r1.error ?? r2.error
+      await invalidate()
+    },
+
+    /** Re-number design items to match the given id order (drag reorder). */
+    async reorderDesignItems(orderedIds: string[]) {
+      patch((data) => ({
+        ...data,
+        designItems: [...data.designItems]
+          .sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id))
+          .map((it, position) => ({ ...it, position })),
+      }))
+      const results = await Promise.all(
+        orderedIds.map((id, position) => supabase.from('design_items').update({ position }).eq('id', id)),
+      )
+      const failed = results.find((r) => r.error)
+      if (failed) {
+        invalidate()
+        throw failed.error
+      }
       await invalidate()
     },
 

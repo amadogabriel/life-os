@@ -69,13 +69,21 @@ describe('resolve (block re-flow)', () => {
     expect(res.map((r) => r.start)).toEqual([300, 360, 390])
     expect(res.every((r) => !r.conflict)).toBe(true)
   })
-  it('anchored blocks keep their time and flag conflicts when overrun', () => {
+  it('anchored blocks overrun by the previous block are pushed down, never overlapped', () => {
     const res = resolve([
       b({ id: 'a', startMin: 300, durMin: 120, anchored: true }),
-      b({ id: 'c', startMin: 360, durMin: 30, anchored: true }), // starts before a ends
+      b({ id: 'c', startMin: 360, durMin: 30, anchored: true }), // pinned before a ends
     ])
-    expect(res[1].start).toBe(360)
-    expect(res[1].conflict).toBe(true)
+    expect(res[1].start).toBe(420) // pushed to a's end
+    expect(res[1].conflict).toBe(true) // pin not honored — flagged
+  })
+  it('anchored blocks keep a gap when the previous block ends earlier', () => {
+    const res = resolve([
+      b({ id: 'a', startMin: 300, durMin: 30, anchored: true }),
+      b({ id: 'c', startMin: 480, durMin: 30, anchored: true }),
+    ])
+    expect(res[1].start).toBe(480) // gap 05:30–08:00 preserved
+    expect(res[1].conflict).toBe(false)
   })
   it('first unanchored block uses its own startMin', () => {
     const res = resolve([b({ id: 'a', startMin: 420, durMin: 30 })])

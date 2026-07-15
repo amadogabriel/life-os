@@ -118,6 +118,12 @@ export function useDemoActions(): PlannerActions {
           return arr
         }),
       ),
+    reorderBlocks: (dow, orderedIds) =>
+      mutate((d) =>
+        mapDow(d, dow, (blocks) =>
+          [...blocks].sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id)),
+        ),
+      ),
 
     saveHabit: (habit, position) =>
       mutate((d) => ({
@@ -144,8 +150,14 @@ export function useDemoActions(): PlannerActions {
       })),
     deleteBucket: (id) => mutate((d) => ({ ...d, buckets: d.buckets.filter((bk) => bk.id !== id) })),
 
-    addDesignItem: (item, position) =>
-      mutate((d) => ({ ...d, designItems: [...d.designItems, { id: nid(), position, name: item.name, cat: item.cat as Cat, mins: 60 }] })),
+    async addDesignItem(item, position) {
+      const id = nid()
+      await mutate((d) => ({
+        ...d,
+        designItems: [...d.designItems, { id, position, name: item.name, cat: item.cat as Cat, mins: 60 }],
+      }))
+      return id
+    },
     updateDesignItem: (id, fields) =>
       mutate((d) => ({ ...d, designItems: d.designItems.map((it) => (it.id === id ? { ...it, ...fields } : it)) })),
     swapDesignItems: (a, b) =>
@@ -156,6 +168,13 @@ export function useDemoActions(): PlannerActions {
         if (i >= 0 && j >= 0) [arr[i], arr[j]] = [arr[j], arr[i]]
         return { ...d, designItems: arr.map((it, position) => ({ ...it, position })) }
       }),
+    reorderDesignItems: (orderedIds) =>
+      mutate((d) => ({
+        ...d,
+        designItems: [...d.designItems]
+          .sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id))
+          .map((it, position) => ({ ...it, position })),
+      })),
     deleteDesignItem: (id) =>
       mutate((d) => ({ ...d, designItems: d.designItems.filter((it) => it.id !== id).map((it, position) => ({ ...it, position })) })),
     resetDesign: () =>

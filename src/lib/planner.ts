@@ -112,21 +112,24 @@ export interface Resolved<T> {
 }
 
 /**
- * Lay out a day's blocks in order. Anchored blocks keep their own start
- * time (flagging a conflict if the previous block runs past it); everything
- * else flows immediately after the previous block.
+ * Lay out a day's blocks in order — blocks never overlap. Anchored blocks
+ * start at their own time, which leaves a gap when the previous block ends
+ * earlier; if the previous block runs past an anchor, the anchored block is
+ * pushed down to the previous end (`conflict` marks that its pin wasn't
+ * honored). Everything else flows immediately after the previous block.
  */
 export function resolve<T extends { startMin: number; durMin: number; anchored: boolean }>(
   blocks: T[],
+  startAt?: number,
 ): Resolved<T>[] {
-  let cursor: number | null = null
+  let cursor: number | null = startAt ?? null
   const out: Resolved<T>[] = []
   for (const b of blocks) {
     let start: number
     let conflict = false
     if (b.anchored) {
-      start = b.startMin
-      if (cursor !== null && cursor > start) conflict = true
+      start = cursor !== null ? Math.max(b.startMin, cursor) : b.startMin
+      conflict = start > b.startMin
     } else {
       start = cursor !== null ? cursor : b.startMin
     }
