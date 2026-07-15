@@ -204,6 +204,9 @@ export interface PlannerActions {
   deleteBlock(id: string): Promise<void>
   swapBlocks(a: Block, b: Block): Promise<void>
   reorderBlocks(dow: number, orderedIds: string[]): Promise<void>
+  /** Move a block to another day; `orderedTargetIds` is the target day's id
+   *  order including the moved block. */
+  moveBlock(id: string, toDow: number, orderedTargetIds: string[]): Promise<void>
   saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
   deleteHabit(id: string): Promise<void>
   saveBucket(bucket: { id?: string; name: string; cat: Cat; tasks: string[] }, position: number): Promise<void>
@@ -314,6 +317,36 @@ export function usePlannerActions(userId: string): PlannerActions {
       const r1 = await supabase.from('blocks').update({ position: b.position }).eq('id', a.id)
       const r2 = await supabase.from('blocks').update({ position: a.position }).eq('id', b.id)
       if (r1.error || r2.error) throw r1.error ?? r2.error
+      await invalidate()
+    },
+
+    async moveBlock(id: string, toDow: number, orderedTargetIds: string[]) {
+      patch((data) => {
+        let moved: Block | undefined
+        const stripped = data.blocksByDow.map((bs) => {
+          const hit = bs.find((b) => b.id === id)
+          if (hit) moved = hit
+          return bs.filter((b) => b.id !== id)
+        })
+        if (!moved) return data
+        const target = [...stripped[toDow]]
+        target.splice(Math.max(0, orderedTargetIds.indexOf(id)), 0, { ...moved, dow: toDow })
+        return {
+          ...data,
+          blocksByDow: stripped.map((bs, d) =>
+            (d === toDow ? target : bs).map((b, position) => ({ ...b, position })),
+          ),
+        }
+      })
+      const r = await supabase.from('blocks').update({ dow: toDow }).eq('id', id)
+      const results = await Promise.all(
+        orderedTargetIds.map((bid, position) => supabase.from('blocks').update({ position }).eq('id', bid)),
+      )
+      const failed = r.error ?? results.find((x) => x.error)?.error
+      if (failed) {
+        invalidate()
+        throw failed
+      }
       await invalidate()
     },
 

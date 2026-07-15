@@ -120,7 +120,9 @@ body {
 .day-head .dname { font-family: var(--serif); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .day-head .dtag { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; }
 .blocks { position: relative; }
-.block { position: absolute; left: 0; right: 0; padding: 3px 8px 3px 10px; border-top: 1px solid var(--line-soft); border-left: 6px solid var(--stripe, var(--line)); cursor: pointer; transition: background 0.12s; overflow: hidden; }
+.block { position: absolute; left: 0; right: 0; padding: 3px 8px 3px 10px; border-top: 1px solid var(--line-soft); border-left: 6px solid var(--stripe, var(--line)); cursor: pointer; transition: background 0.12s; overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.block.dragging { opacity: 0.6; transition: none; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); cursor: grabbing; }
+.drop-line { position: absolute; left: 2px; right: 2px; border-top: 2px solid var(--accent); z-index: 15; pointer-events: none; }
 .block:hover { background: color-mix(in srgb, var(--paper) 50%, transparent); }
 .block:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .block .title { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.2; margin-top: 1px; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
@@ -221,8 +223,10 @@ body {
 /* proportional day-timeline editor (shared by Week day editor + Design) */
 .tl { position: relative; }
 .tl-hourlab { left: 6px; right: auto; }
-.tlcard { position: absolute; left: 52px; right: 10px; background: color-mix(in srgb, var(--stripe) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--stripe) 30%, var(--line)); border-left: 6px solid var(--stripe); border-radius: 8px; padding: 3px 8px 3px 9px; overflow: hidden; cursor: grab; }
-.tlcard .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.tlcard { position: absolute; left: 52px; right: 10px; background: color-mix(in srgb, var(--stripe) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--stripe) 30%, var(--line)); border-left: 6px solid var(--stripe); border-radius: 8px; padding: 3px 8px 3px 9px; overflow: hidden; }
+.tlcard .dh { position: absolute; left: 0; top: 0; bottom: 0; width: 22px; display: flex; align-items: center; justify-content: center; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; color: var(--ink-faint); font-size: 13px; }
+.tlcard .dh:active { cursor: grabbing; color: var(--accent); }
+.tlcard .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-left: 18px; }
 .tlcard .title { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.25; }
 .tlcard.compact { padding-top: 1px; padding-bottom: 1px; }
 .tlcard.compact .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

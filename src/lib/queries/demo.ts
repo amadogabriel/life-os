@@ -118,6 +118,24 @@ export function useDemoActions(): PlannerActions {
           return arr
         }),
       ),
+    moveBlock: (id, toDow, orderedTargetIds) =>
+      mutate((d) => {
+        let moved: Block | undefined
+        const stripped = d.blocksByDow.map((bs) => {
+          const hit = bs.find((b) => b.id === id)
+          if (hit) moved = hit
+          return bs.filter((b) => b.id !== id)
+        })
+        if (!moved) return d
+        const target = [...stripped[toDow]]
+        target.splice(Math.max(0, orderedTargetIds.indexOf(id)), 0, { ...moved, dow: toDow })
+        return {
+          ...d,
+          blocksByDow: stripped.map((bs, day) =>
+            (day === toDow ? target : bs).map((b, position) => ({ ...b, position })),
+          ),
+        }
+      }),
     reorderBlocks: (dow, orderedIds) =>
       mutate((d) =>
         mapDow(d, dow, (blocks) =>
