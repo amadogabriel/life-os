@@ -111,6 +111,7 @@ body {
 
 /* week grid */
 .week { display: grid; grid-template-columns: 44px repeat(7, minmax(120px, 1fr)); gap: 6px; align-items: start; overflow-x: auto; padding-bottom: 6px; }
+.btn.deep-on { color: var(--accent); border-color: var(--accent); }
 .gname { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
 .hourlab { position: absolute; right: 6px; font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; transform: translateY(-0.55em); }
 .day { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
@@ -120,12 +121,20 @@ body {
 .day-head .dname { font-family: var(--serif); font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .day-head .dtag { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; }
 .blocks { position: relative; }
-.block { position: absolute; left: 0; right: 0; padding: 3px 8px 3px 10px; border-top: 1px solid var(--line-soft); border-left: 6px solid var(--stripe, var(--line)); cursor: pointer; transition: background 0.12s; overflow: hidden; }
+.block { position: absolute; left: 0; right: 0; display: flex; align-items: flex-start; gap: 6px; padding: 2px 6px 0 7px; border-top: 1px solid var(--line-soft); border-left: 5px solid var(--stripe, var(--line)); background: color-mix(in srgb, var(--stripe, var(--line)) 13%, transparent); cursor: pointer; transition: background 0.12s; overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; box-sizing: border-box; }
+.block .nm { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; color: var(--ink); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.block .d { font-family: var(--mono); font-size: 8.5px; color: var(--ink-faint); flex: none; margin-top: 2px; }
+.block.tiny { padding-top: 0; }
+.block.tiny .nm { font-size: 9px; }
+.block.tiny .d { display: none; }
+.block.sh { border-left-width: 2px; background: color-mix(in srgb, var(--stripe, var(--line)) 4%, transparent); }
+.block.sh .nm { color: var(--ink-soft); font-weight: 500; }
+.block.is-open .nm { color: var(--accent); font-style: italic; }
+.block.dragging { opacity: 0.6; transition: none; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); cursor: grabbing; }
+.drop-line { position: absolute; left: 2px; right: 2px; border-top: 2px solid var(--accent); z-index: 15; pointer-events: none; }
 .block:hover { background: color-mix(in srgb, var(--paper) 50%, transparent); }
 .block:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.block .title { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.2; margin-top: 1px; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 .block.is-open { border-left-style: dashed; }
-.block.is-open .title { color: var(--accent); font-style: italic; }
 .block.conflict { box-shadow: inset 2px 0 0 var(--danger); }
 .add-block { width: 100%; font-family: var(--sans); font-size: 11px; font-weight: 600; color: var(--ink-faint); background: transparent; border: 1px dashed var(--line); border-radius: 6px; padding: 5px; cursor: pointer; }
 .add-block:hover { color: var(--accent); border-color: var(--accent); }
@@ -133,7 +142,34 @@ body {
 /* today */
 .ring { --p: 0; width: 76px; height: 76px; border-radius: 50%; flex: none; background: conic-gradient(var(--accent) calc(var(--p) * 3.6deg), var(--line-soft) 0); display: grid; place-items: center; }
 .ring > span { width: 56px; height: 56px; border-radius: 50%; background: var(--card); display: grid; place-items: center; font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--ink); }
+/* ---------- dashboard ---------- */
+.ring.ring-sm { width: 56px; height: 56px; }
+.ring.ring-sm > span { width: 42px; height: 42px; font-size: 12.5px; }
+.qi { background: var(--paper); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; font-size: 13px; color: var(--ink); min-width: 0; }
+.qi:focus { outline: none; border-color: var(--accent); }
+.litem { display: flex; align-items: center; gap: 9px; padding: 7px 14px; border-top: 1px solid var(--line-soft); font-size: 13.5px; }
+.litem .chk { width: 18px; height: 18px; border-radius: 5px; flex: none; }
+.litem .txt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.litem.done .txt { text-decoration: line-through; color: var(--ink-faint); }
+.litem .x { border: 0; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 11px; padding: 2px 4px; flex: none; }
+.litem .x:hover { color: var(--danger); }
+.litem .bullet { color: var(--ink-faint); flex: none; }
+.litem.upitem { border-left: 4px solid var(--stripe, var(--line)); padding-left: 11px; }
+.litem.upitem.sh { border-left-width: 2px; }
+.litem.upitem.sh .txt { color: var(--ink-soft); }
+.litem.upitem .t { font-family: var(--mono); font-size: 10px; min-width: 58px; font-variant-numeric: tabular-nums; }
+.hint { padding: 10px 14px; font-size: 12px; color: var(--ink-faint); }
+.glance-row { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 8px; border: 0; background: transparent; padding: 2px 0; cursor: pointer; }
+.glance-row:hover .gd { color: var(--ink); }
+.glance-row .gd { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); text-align: left; }
+.glance-row .gd.today { color: var(--accent); font-weight: 700; }
+.glance-row .gbar { display: flex; height: 12px; border-radius: 4px; overflow: hidden; background: var(--line-soft); }
+.gseg { height: 100%; background: var(--stripe, var(--line)); }
+.gseg.sh { opacity: 0.35; }
+
 .citem { display: grid; grid-template-columns: 26px 60px 1fr; gap: 12px; align-items: start; padding: 11px 16px; border-bottom: 1px solid var(--line-soft); border-left: 3px solid var(--stripe, var(--line)); }
+.citem.sh { border-left-width: 2px; }
+.citem.sh .title { color: var(--ink-soft); font-weight: 500; }
 .citem:last-child { border-bottom: 0; }
 .citem .time { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); padding-top: 2px; font-variant-numeric: tabular-nums; }
 .citem .title { font-size: 14px; font-weight: 600; }
@@ -221,13 +257,17 @@ body {
 /* proportional day-timeline editor (shared by Week day editor + Design) */
 .tl { position: relative; }
 .tl-hourlab { left: 6px; right: auto; }
-.tlcard { position: absolute; left: 52px; right: 10px; background: color-mix(in srgb, var(--stripe) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--stripe) 30%, var(--line)); border-left: 6px solid var(--stripe); border-radius: 8px; padding: 3px 8px 3px 9px; overflow: hidden; cursor: grab; }
-.tlcard .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.tlcard { position: absolute; left: 52px; right: 10px; background: color-mix(in srgb, var(--stripe) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--stripe) 30%, var(--line)); border-left: 6px solid var(--stripe); border-radius: 8px; padding: 3px 8px 3px 9px; overflow: hidden; }
+.tlcard .dh { position: absolute; left: 0; top: 0; bottom: 0; width: 22px; display: flex; align-items: center; justify-content: center; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; color: var(--ink-faint); font-size: 13px; }
+.tlcard .dh:active { cursor: grabbing; color: var(--accent); }
+.tlcard .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-left: 18px; }
 .tlcard .title { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.25; }
 .tlcard.compact { padding-top: 1px; padding-bottom: 1px; }
 .tlcard.compact .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tlcard.dragging { opacity: 0.45; }
 .tlcard.conflict { box-shadow: inset 2px 0 0 var(--danger); }
+.tlcard.sh { border-left-width: 3px; background: color-mix(in srgb, var(--stripe) 4%, var(--card)); }
+.tlcard.sh .title { color: var(--ink-soft); font-weight: 500; }
 .tlcard .stp button { width: 22px; height: 22px; }
 .tlcard .rz { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; touch-action: none; }
 .tlcard .rz::after { content: ''; display: block; margin: 3px auto 0; width: 28px; height: 3px; border-radius: 2px; background: transparent; }

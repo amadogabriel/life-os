@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Bucket, PlannerActions, PlannerData } from '../../lib/queries/planner'
+import { catStyles, stripeVar } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
 import { BucketModal } from '../design/BucketModal'
@@ -22,13 +23,20 @@ export function DayEditor({
 }) {
   const [editingBucket, setEditingBucket] = useState<Bucket | 'new' | null>(null)
   const blocks = data.blocksByDow[dow]
+  const styles = catStyles(data.buckets)
 
   async function addFromChip(bucketId: string, taskId: string): Promise<string | null> {
     const bucket = data.buckets.find((bk) => bk.id === bucketId)
     const task = bucket?.tasks.find((t) => t.id === taskId)
     if (!bucket || !task) return null
     const id = await actions.addBlock(dow, blocks.length)
-    await actions.updateBlock(id, { cat: bucket.cat, title: task.name, durMin: 60, anchored: false })
+    await actions.updateBlock(id, {
+      cat: bucket.cat,
+      title: task.name,
+      durMin: 60,
+      anchored: false,
+      deep: task.deep,
+    })
     return id
   }
 
@@ -38,6 +46,7 @@ export function DayEditor({
         <div className="daycard" style={{ maxHeight: 'calc(90vh - 180px)', overflowY: 'auto' }}>
           <TimelineEditor
             items={blocks}
+            styles={styles}
             onSetMins={(id, mins) => actions.updateBlock(id, { durMin: mins })}
             onSetStart={(id, startMin) => actions.updateBlock(id, { startMin })}
             onReorder={(ids) => actions.reorderBlocks(dow, ids)}
@@ -58,7 +67,7 @@ export function DayEditor({
           {data.buckets.map((bk) => (
             <div key={bk.id} className="bucket shrink-0">
               <div className="bucket-head">
-                <span className={`hname s-${bk.cat}`}>
+                <span className={`hname s-${bk.cat}`} style={stripeVar(styles[bk.cat])}>
                   <span className="dot" />
                   {bk.name}
                 </span>
@@ -71,6 +80,7 @@ export function DayEditor({
                   <button
                     key={tk.id}
                     className={`chip s-${bk.cat}`}
+                    style={stripeVar(styles[bk.cat])}
                     draggable
                     onDragStart={(e) => {
                       e.dataTransfer.setData('text/plain', bk.id + '|' + tk.id)
@@ -78,6 +88,7 @@ export function DayEditor({
                     }}
                     onClick={() => addFromChip(bk.id, tk.id)}
                   >
+                    {tk.deep ? '▲ ' : ''}
                     {tk.name}
                     <span className="add">＋</span>
                   </button>

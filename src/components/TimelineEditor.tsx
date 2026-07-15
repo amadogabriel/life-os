@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent, type PointerEvent } from 'react'
-import { fmt, fmtDur, resolve } from '../lib/planner'
+import { depthClass, fmt, fmtDur, resolve, stripeVar, type Cat, type CatStyle } from '../lib/planner'
 
 export interface TimelineItem {
   id: string
@@ -8,6 +8,7 @@ export interface TimelineItem {
   startMin: number
   durMin: number
   anchored: boolean
+  deep?: boolean
 }
 
 const PXMIN = 26 / 30 // slightly denser than the week grid — more day per screen
@@ -34,6 +35,7 @@ export function TimelineEditor({
   onTitleClick,
   onDropExternal,
   emptyHint = 'Tap a task chip (or drag it here) to add.',
+  styles,
 }: {
   items: TimelineItem[]
   startAt?: number
@@ -45,6 +47,7 @@ export function TimelineEditor({
   onTitleClick?: (id: string) => void
   onDropExternal?: (payload: string, insertIdx: number) => void
   emptyHint?: string
+  styles?: Partial<Record<Cat, CatStyle>>
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
@@ -118,10 +121,46 @@ export function TimelineEditor({
     }
   }
 
+  // Card moving is pointer-based (works on touch, where HTML5 DnD does not).
+  // The live values sit in a ref so pointerup never reads a stale render.
+  const moveRef = useRef<{ id: string; at: number } | null>(null)
+  function startMove(e: PointerEvent, id: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    } catch {
+      // pointer already gone (or synthetic) — dragging still works while over the list
+    }
+    moveRef.current = { id, at: insertIdxAt(e.clientY) }
+    setDragId(id)
+    setOverIdx(moveRef.current.at)
+  }
+
+  function moveMove(e: PointerEvent) {
+    if (!moveRef.current) return
+    moveRef.current.at = insertIdxAt(e.clientY)
+    setOverIdx(moveRef.current.at)
+  }
+
+  function endMove() {
+    const m = moveRef.current
+    moveRef.current = null
+    setDragId(null)
+    setOverIdx(null)
+    if (!m) return
+    const ids = orderWith(m.id, m.at)
+    if (ids.some((x, i) => x !== items[i]?.id)) onReorder(ids)
+  }
+
   function startResize(e: PointerEvent, id: string, orig: number, mode: 'end' | 'start') {
     e.preventDefault()
     e.stopPropagation()
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    try {
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    } catch {
+      // pointer already gone (or synthetic) — resize still tracks while over the card
+    }
     setResizing({ id, mode, val: mode === 'end' ? snap(orig) : orig, startY: e.clientY, orig })
   }
 
@@ -182,22 +221,27 @@ export function TimelineEditor({
             <div
               className={
                 `tlcard s-${it.cat}` +
+                depthClass(it.deep ?? false) +
                 (conflict ? ' conflict' : '') +
                 (dragId === it.id ? ' dragging' : '') +
                 (hpx <= 40 ? ' compact' : '')
               }
-              style={{ top: yOf(start), height: hpx }}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData('text/plain', 'tl|' + it.id)
-                e.dataTransfer.effectAllowed = 'move'
-                setDragId(it.id)
-              }}
-              onDragEnd={() => {
-                setDragId(null)
-                setOverIdx(null)
-              }}
+              style={{ ...stripeVar(styles?.[it.cat as Cat]), top: yOf(start), height: hpx }}
             >
+              <div
+                className="dh"
+                title="Drag to move"
+                onPointerDown={(e) => startMove(e, it.id)}
+                onPointerMove={moveMove}
+                onPointerUp={endMove}
+                onPointerCancel={() => {
+                  moveRef.current = null
+                  setDragId(null)
+                  setOverIdx(null)
+                }}
+              >
+                ⠿
+              </div>
               <div className="row">
                 {onTitleClick ? (
                   <button

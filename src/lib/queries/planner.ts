@@ -15,6 +15,7 @@ export interface BucketTask {
   id: string
   name: string
   position: number
+  deep: boolean
 }
 
 export interface Bucket {
@@ -22,7 +23,21 @@ export interface Bucket {
   name: string
   cat: Cat
   position: number
+  color: string // '' = default palette color for the cat
   tasks: BucketTask[]
+}
+
+export interface Todo {
+  id: string
+  text: string
+  done: boolean
+  position: number
+}
+
+export interface DumpItem {
+  id: string
+  text: string
+  createdAt: string
 }
 
 export interface DesignItem {
@@ -41,11 +56,18 @@ export interface PlannerData {
   habitLogs: LogMap
   buckets: Bucket[]
   designItems: DesignItem[]
+  todos: Todo[]
+  dumps: DumpItem[]
   notes: string
   designWakeMin: number
 }
 
 export const plannerKey = ['planner'] as const
+
+/** First-seed heuristic: study blocks and self-described deep blocks are deep. */
+export function isDeepDefault(cat: Cat, title: string): boolean {
+  return cat === 'math' || cat === 'thesis' || /deep/i.test(title)
+}
 
 function toLogMap(rows: { done_on: string }[], idKey: 'block_id' | 'habit_id'): LogMap {
   const map: LogMap = {}
@@ -73,6 +95,7 @@ async function seedDefaults(userId: string): Promise<void> {
       start_min: b.startMin,
       dur_min: b.durMin,
       anchored: b.anchored,
+      deep: isDeepDefault(b.cat, b.title),
     })),
   )
   const { error: blkErr } = await supabase.from('blocks').insert(blockRows)
@@ -92,7 +115,15 @@ async function seedDefaults(userId: string): Promise<void> {
     if (error) throw error
     const { error: taskErr } = await supabase
       .from('bucket_tasks')
-      .insert(bk.tasks.map((name, i) => ({ user_id: userId, bucket_id: bucket.id, name, position: i })))
+      .insert(
+        bk.tasks.map((name, i) => ({
+          user_id: userId,
+          bucket_id: bucket.id,
+          name,
+          deep: isDeepDefault(bk.cat, name),
+          position: i,
+        })),
+      )
     if (taskErr) throw taskErr
   }
 
@@ -108,7 +139,7 @@ async function seedDefaults(userId: string): Promise<void> {
 }
 
 async function fetchPlanner(userId: string): Promise<PlannerData> {
-  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, profile] =
+  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, profile] =
     await Promise.all([
       supabase.from('days').select('*').order('dow'),
       supabase.from('blocks').select('*').order('dow').order('position'),
@@ -118,9 +149,11 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       supabase.from('buckets').select('*').order('position'),
       supabase.from('bucket_tasks').select('*').order('position'),
       supabase.from('design_items').select('*').order('position'),
+      supabase.from('todos').select('*').order('position'),
+      supabase.from('dump_items').select('*').order('created_at'),
       supabase.from('profiles').select('*').maybeSingle(),
     ])
-  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, profile]
+  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, profile]
   for (const r of results) if (r.error) throw r.error
 
   if (!days.data || days.data.length === 0) {
@@ -141,13 +174,14 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       startMin: b.start_min,
       durMin: b.dur_min,
       anchored: b.anchored,
+      deep: b.deep ?? false,
     })
   }
 
   const taskByBucket = new Map<string, BucketTask[]>()
   for (const t of bucketTasks.data!) {
     const list = taskByBucket.get(t.bucket_id) ?? []
-    list.push({ id: t.id, name: t.name, position: t.position })
+    list.push({ id: t.id, name: t.name, position: t.position, deep: t.deep ?? false })
     taskByBucket.set(t.bucket_id, list)
   }
 
@@ -168,6 +202,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       name: bk.name,
       cat: bk.cat as Cat,
       position: bk.position,
+      color: bk.color ?? '',
       tasks: taskByBucket.get(bk.id) ?? [],
     })),
     designItems: designItems.data!.map((it) => ({
@@ -177,6 +212,8 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       cat: it.cat as Cat,
       mins: it.mins,
     })),
+    todos: todos.data!.map((t) => ({ id: t.id, text: t.text, done: t.done, position: t.position })),
+    dumps: dumps.data!.map((d) => ({ id: d.id, text: d.text, createdAt: d.created_at })),
     notes: profile.data?.notes ?? '',
     designWakeMin: profile.data?.design_wake_min ?? DEFAULT_WAKE_MIN,
   }
@@ -199,15 +236,26 @@ export interface PlannerActions {
   addBlock(dow: number, position: number): Promise<string>
   updateBlock(
     id: string,
-    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored'>>,
+    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep'>>,
   ): Promise<void>
   deleteBlock(id: string): Promise<void>
   swapBlocks(a: Block, b: Block): Promise<void>
   reorderBlocks(dow: number, orderedIds: string[]): Promise<void>
+  /** Move a block to another day; `orderedTargetIds` is the target day's id
+   *  order including the moved block. */
+  moveBlock(id: string, toDow: number, orderedTargetIds: string[]): Promise<void>
   saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
   deleteHabit(id: string): Promise<void>
-  saveBucket(bucket: { id?: string; name: string; cat: Cat; tasks: string[] }, position: number): Promise<void>
+  saveBucket(
+    bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
+    position: number,
+  ): Promise<void>
   deleteBucket(id: string): Promise<void>
+  addTodo(text: string): Promise<void>
+  toggleTodo(id: string, done: boolean): Promise<void>
+  deleteTodo(id: string): Promise<void>
+  addDump(text: string): Promise<void>
+  deleteDump(id: string): Promise<void>
   addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<string>
   updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
   swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
@@ -281,7 +329,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       return data.id
     },
 
-    async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored'>>) {
+    async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep'>>) {
       // Optimistic: rapid ± duration taps must see each other's result.
       patch((data) => ({
         ...data,
@@ -296,6 +344,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.startMin !== undefined && { start_min: fields.startMin }),
           ...(fields.durMin !== undefined && { dur_min: fields.durMin }),
           ...(fields.anchored !== undefined && { anchored: fields.anchored }),
+          ...(fields.deep !== undefined && { deep: fields.deep }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -314,6 +363,36 @@ export function usePlannerActions(userId: string): PlannerActions {
       const r1 = await supabase.from('blocks').update({ position: b.position }).eq('id', a.id)
       const r2 = await supabase.from('blocks').update({ position: a.position }).eq('id', b.id)
       if (r1.error || r2.error) throw r1.error ?? r2.error
+      await invalidate()
+    },
+
+    async moveBlock(id: string, toDow: number, orderedTargetIds: string[]) {
+      patch((data) => {
+        let moved: Block | undefined
+        const stripped = data.blocksByDow.map((bs) => {
+          const hit = bs.find((b) => b.id === id)
+          if (hit) moved = hit
+          return bs.filter((b) => b.id !== id)
+        })
+        if (!moved) return data
+        const target = [...stripped[toDow]]
+        target.splice(Math.max(0, orderedTargetIds.indexOf(id)), 0, { ...moved, dow: toDow })
+        return {
+          ...data,
+          blocksByDow: stripped.map((bs, d) =>
+            (d === toDow ? target : bs).map((b, position) => ({ ...b, position })),
+          ),
+        }
+      })
+      const r = await supabase.from('blocks').update({ dow: toDow }).eq('id', id)
+      const results = await Promise.all(
+        orderedTargetIds.map((bid, position) => supabase.from('blocks').update({ position }).eq('id', bid)),
+      )
+      const failed = r.error ?? results.find((x) => x.error)?.error
+      if (failed) {
+        invalidate()
+        throw failed
+      }
       await invalidate()
     },
 
@@ -351,12 +430,15 @@ export function usePlannerActions(userId: string): PlannerActions {
       await invalidate()
     },
 
-    async saveBucket(bucket: { id?: string; name: string; cat: Cat; tasks: string[] }, position: number) {
+    async saveBucket(
+      bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
+      position: number,
+    ) {
       let bucketId = bucket.id
       if (bucketId) {
         const { error } = await supabase
           .from('buckets')
-          .update({ name: bucket.name, cat: bucket.cat })
+          .update({ name: bucket.name, cat: bucket.cat, color: bucket.color })
           .eq('id', bucketId)
         if (error) throw error
         const { error: delErr } = await supabase.from('bucket_tasks').delete().eq('bucket_id', bucketId)
@@ -364,7 +446,13 @@ export function usePlannerActions(userId: string): PlannerActions {
       } else {
         const { data, error } = await supabase
           .from('buckets')
-          .insert({ user_id: userId, name: bucket.name, cat: bucket.cat, position })
+          .insert({
+            user_id: userId,
+            name: bucket.name,
+            cat: bucket.cat,
+            position,
+            color: bucket.color,
+          })
           .select('id')
           .single()
         if (error) throw error
@@ -373,7 +461,15 @@ export function usePlannerActions(userId: string): PlannerActions {
       if (bucket.tasks.length) {
         const { error } = await supabase
           .from('bucket_tasks')
-          .insert(bucket.tasks.map((name, i) => ({ user_id: userId, bucket_id: bucketId!, name, position: i })))
+          .insert(
+            bucket.tasks.map((t, i) => ({
+              user_id: userId,
+              bucket_id: bucketId!,
+              name: t.name,
+              deep: t.deep,
+              position: i,
+            })),
+          )
         if (error) throw error
       }
       await invalidate()
@@ -383,6 +479,36 @@ export function usePlannerActions(userId: string): PlannerActions {
       const { error } = await supabase.from('buckets').delete().eq('id', id)
       if (error) throw error
       await invalidate()
+    },
+
+    async addTodo(text: string) {
+      const { error } = await supabase.from('todos').insert({ user_id: userId, text, position: Date.now() })
+      if (error) throw error
+      await invalidate()
+    },
+
+    async toggleTodo(id: string, done: boolean) {
+      patch((data) => ({ ...data, todos: data.todos.map((t) => (t.id === id ? { ...t, done } : t)) }))
+      const { error } = await supabase.from('todos').update({ done }).eq('id', id)
+      if (error) invalidate()
+    },
+
+    async deleteTodo(id: string) {
+      patch((data) => ({ ...data, todos: data.todos.filter((t) => t.id !== id) }))
+      const { error } = await supabase.from('todos').delete().eq('id', id)
+      if (error) invalidate()
+    },
+
+    async addDump(text: string) {
+      const { error } = await supabase.from('dump_items').insert({ user_id: userId, text })
+      if (error) throw error
+      await invalidate()
+    },
+
+    async deleteDump(id: string) {
+      patch((data) => ({ ...data, dumps: data.dumps.filter((d) => d.id !== id) }))
+      const { error } = await supabase.from('dump_items').delete().eq('id', id)
+      if (error) invalidate()
     },
 
     async addDesignItem(item: { name: string; cat: Cat }, position: number) {
