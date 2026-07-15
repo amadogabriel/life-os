@@ -15,6 +15,7 @@ export interface BucketTask {
   id: string
   name: string
   position: number
+  deep: boolean
 }
 
 export interface Bucket {
@@ -23,7 +24,6 @@ export interface Bucket {
   cat: Cat
   position: number
   color: string // '' = default palette color for the cat
-  deep: boolean // deep work — rendered saturated; shallow renders muted
   tasks: BucketTask[]
 }
 
@@ -64,8 +64,10 @@ export interface PlannerData {
 
 export const plannerKey = ['planner'] as const
 
-/** Categories that default to deep work on first seed. */
-export const DEEP_CATS: Cat[] = ['work', 'math', 'thesis']
+/** First-seed heuristic: study blocks and self-described deep blocks are deep. */
+export function isDeepDefault(cat: Cat, title: string): boolean {
+  return cat === 'math' || cat === 'thesis' || /deep/i.test(title)
+}
 
 function toLogMap(rows: { done_on: string }[], idKey: 'block_id' | 'habit_id'): LogMap {
   const map: LogMap = {}
@@ -93,6 +95,7 @@ async function seedDefaults(userId: string): Promise<void> {
       start_min: b.startMin,
       dur_min: b.durMin,
       anchored: b.anchored,
+      deep: isDeepDefault(b.cat, b.title),
     })),
   )
   const { error: blkErr } = await supabase.from('blocks').insert(blockRows)
@@ -106,13 +109,21 @@ async function seedDefaults(userId: string): Promise<void> {
   for (const [position, bk] of defaultBuckets.entries()) {
     const { data: bucket, error } = await supabase
       .from('buckets')
-      .insert({ user_id: userId, name: bk.name, cat: bk.cat, position, deep: DEEP_CATS.includes(bk.cat) })
+      .insert({ user_id: userId, name: bk.name, cat: bk.cat, position })
       .select('id')
       .single()
     if (error) throw error
     const { error: taskErr } = await supabase
       .from('bucket_tasks')
-      .insert(bk.tasks.map((name, i) => ({ user_id: userId, bucket_id: bucket.id, name, position: i })))
+      .insert(
+        bk.tasks.map((name, i) => ({
+          user_id: userId,
+          bucket_id: bucket.id,
+          name,
+          deep: isDeepDefault(bk.cat, name),
+          position: i,
+        })),
+      )
     if (taskErr) throw taskErr
   }
 
@@ -163,13 +174,14 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       startMin: b.start_min,
       durMin: b.dur_min,
       anchored: b.anchored,
+      deep: b.deep ?? false,
     })
   }
 
   const taskByBucket = new Map<string, BucketTask[]>()
   for (const t of bucketTasks.data!) {
     const list = taskByBucket.get(t.bucket_id) ?? []
-    list.push({ id: t.id, name: t.name, position: t.position })
+    list.push({ id: t.id, name: t.name, position: t.position, deep: t.deep ?? false })
     taskByBucket.set(t.bucket_id, list)
   }
 
@@ -191,7 +203,6 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       cat: bk.cat as Cat,
       position: bk.position,
       color: bk.color ?? '',
-      deep: bk.deep ?? false,
       tasks: taskByBucket.get(bk.id) ?? [],
     })),
     designItems: designItems.data!.map((it) => ({
@@ -225,7 +236,7 @@ export interface PlannerActions {
   addBlock(dow: number, position: number): Promise<string>
   updateBlock(
     id: string,
-    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored'>>,
+    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep'>>,
   ): Promise<void>
   deleteBlock(id: string): Promise<void>
   swapBlocks(a: Block, b: Block): Promise<void>
@@ -236,7 +247,7 @@ export interface PlannerActions {
   saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
   deleteHabit(id: string): Promise<void>
   saveBucket(
-    bucket: { id?: string; name: string; cat: Cat; tasks: string[]; color: string; deep: boolean },
+    bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
     position: number,
   ): Promise<void>
   deleteBucket(id: string): Promise<void>
@@ -318,7 +329,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       return data.id
     },
 
-    async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored'>>) {
+    async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep'>>) {
       // Optimistic: rapid ± duration taps must see each other's result.
       patch((data) => ({
         ...data,
@@ -333,6 +344,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.startMin !== undefined && { start_min: fields.startMin }),
           ...(fields.durMin !== undefined && { dur_min: fields.durMin }),
           ...(fields.anchored !== undefined && { anchored: fields.anchored }),
+          ...(fields.deep !== undefined && { deep: fields.deep }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -419,14 +431,14 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async saveBucket(
-      bucket: { id?: string; name: string; cat: Cat; tasks: string[]; color: string; deep: boolean },
+      bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
       position: number,
     ) {
       let bucketId = bucket.id
       if (bucketId) {
         const { error } = await supabase
           .from('buckets')
-          .update({ name: bucket.name, cat: bucket.cat, color: bucket.color, deep: bucket.deep })
+          .update({ name: bucket.name, cat: bucket.cat, color: bucket.color })
           .eq('id', bucketId)
         if (error) throw error
         const { error: delErr } = await supabase.from('bucket_tasks').delete().eq('bucket_id', bucketId)
@@ -440,7 +452,6 @@ export function usePlannerActions(userId: string): PlannerActions {
             cat: bucket.cat,
             position,
             color: bucket.color,
-            deep: bucket.deep,
           })
           .select('id')
           .single()
@@ -450,7 +461,15 @@ export function usePlannerActions(userId: string): PlannerActions {
       if (bucket.tasks.length) {
         const { error } = await supabase
           .from('bucket_tasks')
-          .insert(bucket.tasks.map((name, i) => ({ user_id: userId, bucket_id: bucketId!, name, position: i })))
+          .insert(
+            bucket.tasks.map((t, i) => ({
+              user_id: userId,
+              bucket_id: bucketId!,
+              name: t.name,
+              deep: t.deep,
+              position: i,
+            })),
+          )
         if (error) throw error
       }
       await invalidate()

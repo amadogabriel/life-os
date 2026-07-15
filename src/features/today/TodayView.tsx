@@ -54,16 +54,34 @@ export function TodayView({ data, actions, today }: ViewProps) {
 
   const todaysHabits = data.habits.filter((h) => h.days.includes(dow))
   const openTodos = data.todos.filter((t) => !t.done)
-  const deepMins = resolved
-    .filter((r) => styles[r.block.cat]?.deep)
-    .reduce((x, r) => x + r.block.durMin, 0)
+  const deepMins = resolved.filter((r) => r.block.deep).reduce((x, r) => x + r.block.durMin, 0)
   const topStreaks = data.habits
     .map((h) => ({ h, s: streak(h, data.habitLogs, today) }))
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s)
     .slice(0, 3)
   const nowMin = today.getHours() * 60 + today.getMinutes()
-  const nextUp = resolved.find((r) => r.start >= nowMin && !log[r.block.id])
+  const upcomingToday = resolved.filter((r) => r.start + r.block.durMin > nowMin && !log[r.block.id])
+  const nextUp = upcomingToday[0]
+  const tomorrowDow = (dow + 1) % 7
+  const upcoming: { key: string; when: string; title: string; deep: boolean; cat: string }[] = [
+    ...upcomingToday.map((r) => ({
+      key: r.block.id,
+      when: fmt(r.start),
+      title: r.block.title,
+      deep: r.block.deep,
+      cat: r.block.cat,
+    })),
+    ...resolve(data.blocksByDow[tomorrowDow])
+      .slice(0, Math.max(0, 6 - upcomingToday.length))
+      .map((r) => ({
+        key: 'tm-' + r.block.id,
+        when: `${data.days[tomorrowDow].name.slice(0, 3)} ${fmt(r.start)}`,
+        title: r.block.title,
+        deep: r.block.deep,
+        cat: r.block.cat,
+      })),
+  ].slice(0, 6)
 
   async function submitTodo() {
     const t = todoText.trim()
@@ -122,7 +140,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
             return (
               <div
                 key={b.id}
-                className={`citem s-${b.cat}${depthClass(styles[b.cat])}${checked ? ' done' : ''}`}
+                className={`citem s-${b.cat}${depthClass(b.deep)}${checked ? ' done' : ''}`}
                 style={stripeVar(styles[b.cat])}
               >
                 <button
@@ -230,7 +248,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                       {res.map((r) => (
                         <span
                           key={r.block.id}
-                          className={`gseg s-${r.block.cat}${depthClass(styles[r.block.cat])}`}
+                          className={`gseg s-${r.block.cat}${depthClass(r.block.deep)}`}
                           style={{
                             ...stripeVar(styles[r.block.cat]),
                             width: `${(r.block.durMin / total) * 100}%`,
@@ -242,6 +260,20 @@ export function TodayView({ data, actions, today }: ViewProps) {
                 )
               })}
             </div>
+          </Card>
+
+          {/* coming up */}
+          <Card title="Coming up">
+            {upcoming.length === 0 && <div className="hint">Nothing left — the day is done.</div>}
+            {upcoming.map((u) => (
+              <div key={u.key} className={`litem s-${u.cat}${depthClass(u.deep)} upitem`} style={stripeVar(styles[u.cat as never])}>
+                <span className="bullet t">{u.when}</span>
+                <span className="txt">
+                  {u.deep ? '▲ ' : ''}
+                  {u.title}
+                </span>
+              </div>
+            ))}
           </Card>
 
           {/* highlights */}

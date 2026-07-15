@@ -111,6 +111,19 @@ body {
 
 /* week grid */
 .week { display: grid; grid-template-columns: 44px repeat(7, minmax(120px, 1fr)); gap: 6px; align-items: start; overflow-x: auto; padding-bottom: 6px; }
+.week.week-list { grid-template-columns: repeat(7, minmax(130px, 1fr)); }
+.wrows { position: relative; }
+.wrow { display: flex; align-items: center; gap: 6px; padding: 0 6px 0 7px; border-top: 1px solid var(--line-soft); border-left: 5px solid var(--stripe, var(--line)); background: color-mix(in srgb, var(--stripe, var(--line)) 13%, transparent); cursor: pointer; overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; box-sizing: border-box; }
+.wrow .t { font-family: var(--mono); font-size: 9px; color: var(--ink-faint); font-variant-numeric: tabular-nums; flex: none; }
+.wrow .nm { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wrow .d { font-family: var(--mono); font-size: 8.5px; color: var(--ink-faint); flex: none; }
+.wrow.sh { border-left-width: 2px; background: color-mix(in srgb, var(--stripe, var(--line)) 4%, transparent); }
+.wrow.sh .nm { color: var(--ink-soft); font-weight: 500; }
+.wrow.is-open { border-left-style: dashed; }
+.wrow.is-open .nm { color: var(--accent); font-style: italic; }
+.wrow.conflict { box-shadow: inset 2px 0 0 var(--danger); }
+.wrow.dragging { opacity: 0.6; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); cursor: grabbing; }
+.btn.deep-on { color: var(--accent); border-color: var(--accent); }
 .gname { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
 .hourlab { position: absolute; right: 6px; font-family: var(--mono); font-size: 9.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; transform: translateY(-0.55em); }
 .day { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
@@ -149,6 +162,10 @@ body {
 .litem .x { border: 0; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 11px; padding: 2px 4px; flex: none; }
 .litem .x:hover { color: var(--danger); }
 .litem .bullet { color: var(--ink-faint); flex: none; }
+.litem.upitem { border-left: 4px solid var(--stripe, var(--line)); padding-left: 11px; }
+.litem.upitem.sh { border-left-width: 2px; }
+.litem.upitem.sh .txt { color: var(--ink-soft); }
+.litem.upitem .t { font-family: var(--mono); font-size: 10px; min-width: 58px; font-variant-numeric: tabular-nums; }
 .hint { padding: 10px 14px; font-size: 12px; color: var(--ink-faint); }
 .glance-row { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 8px; border: 0; background: transparent; padding: 2px 0; cursor: pointer; }
 .glance-row:hover .gd { color: var(--ink); }

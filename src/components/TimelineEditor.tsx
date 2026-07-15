@@ -8,6 +8,7 @@ export interface TimelineItem {
   startMin: number
   durMin: number
   anchored: boolean
+  deep?: boolean
 }
 
 const PXMIN = 26 / 30 // slightly denser than the week grid — more day per screen
@@ -220,7 +221,7 @@ export function TimelineEditor({
             <div
               className={
                 `tlcard s-${it.cat}` +
-                depthClass(styles?.[it.cat as Cat]) +
+                depthClass(it.deep ?? false) +
                 (conflict ? ' conflict' : '') +
                 (dragId === it.id ? ' dragging' : '') +
                 (hpx <= 40 ? ' compact' : '')

@@ -30,7 +30,13 @@ export function DayEditor({
     const task = bucket?.tasks.find((t) => t.id === taskId)
     if (!bucket || !task) return null
     const id = await actions.addBlock(dow, blocks.length)
-    await actions.updateBlock(id, { cat: bucket.cat, title: task.name, durMin: 60, anchored: false })
+    await actions.updateBlock(id, {
+      cat: bucket.cat,
+      title: task.name,
+      durMin: 60,
+      anchored: false,
+      deep: task.deep,
+    })
     return id
   }
 
@@ -64,7 +70,6 @@ export function DayEditor({
                 <span className={`hname s-${bk.cat}`} style={stripeVar(styles[bk.cat])}>
                   <span className="dot" />
                   {bk.name}
-                  {bk.deep ? ' ·▲' : ''}
                 </span>
                 <button className="bk-edit" title="Edit bucket" onClick={() => setEditingBucket(bk)}>
                   ⋯
@@ -83,6 +88,7 @@ export function DayEditor({
                     }}
                     onClick={() => addFromChip(bk.id, tk.id)}
                   >
+                    {tk.deep ? '▲ ' : ''}
                     {tk.name}
                     <span className="add">＋</span>
                   </button>

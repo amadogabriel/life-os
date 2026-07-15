@@ -34,6 +34,7 @@ export function BlockModal({
   const [detail, setDetail] = useState(block?.detail ?? '')
   const [dur, setDur] = useState(block?.durMin ?? 30)
   const [anchored, setAnchored] = useState(block?.anchored ?? false)
+  const [deep, setDeep] = useState(block?.deep ?? false)
   const resolvedStart = index >= 0 ? resolve(blocks)[index].start : 0
   const [start, setStart] = useState(fmt(block?.anchored ? block.startMin : resolvedStart))
 
@@ -49,6 +50,7 @@ export function BlockModal({
       detail: detail.trim(),
       durMin: Math.max(5, dur || 30),
       anchored,
+      deep,
       ...(anchored && { startMin: parseTime(start) }),
     })
     onClose()
@@ -129,6 +131,10 @@ export function BlockModal({
       <label className="check">
         <input type="checkbox" checked={anchored} onChange={(e) => setAnchored(e.target.checked)} /> 📌
         Fixed start time (anchor — won't shift)
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} /> ▲ Deep work
+        (rendered saturated; shallow is muted)
       </label>
       <div className="mt-[18px] flex items-center gap-2">
         <button className="btn danger ghost" onClick={remove}>

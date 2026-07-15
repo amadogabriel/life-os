@@ -39,6 +39,7 @@ export interface Block {
   startMin: number
   durMin: number
   anchored: boolean
+  deep: boolean
 }
 
 export interface Day {
@@ -62,13 +63,12 @@ export type LogMap = Record<string, Record<string, true>>
 
 export interface CatStyle {
   color: string // '' = default palette color for the cat
-  deep: boolean
 }
 
-/** Per-category visual style derived from the user's buckets. */
-export function catStyles(buckets: { cat: Cat; color: string; deep: boolean }[]): Partial<Record<Cat, CatStyle>> {
+/** Per-category custom colors derived from the user's buckets. */
+export function catStyles(buckets: { cat: Cat; color: string }[]): Partial<Record<Cat, CatStyle>> {
   const map: Partial<Record<Cat, CatStyle>> = {}
-  for (const bk of buckets) if (!map[bk.cat]) map[bk.cat] = { color: bk.color, deep: bk.deep }
+  for (const bk of buckets) if (!map[bk.cat]) map[bk.cat] = { color: bk.color }
   return map
 }
 
@@ -77,9 +77,9 @@ export function stripeVar(style?: CatStyle): Record<string, string> | undefined 
   return style?.color ? { ['--stripe']: style.color } : undefined
 }
 
-/** ' sh' class suffix for shallow (non-deep) categories — rendered muted. */
-export function depthClass(style?: CatStyle): string {
-  return style?.deep ? '' : ' sh'
+/** ' sh' class suffix for shallow (non-deep) work — rendered muted. */
+export function depthClass(deep: boolean): string {
+  return deep ? '' : ' sh'
 }
 
 // ---------- time / date helpers ----------

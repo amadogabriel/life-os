@@ -24,15 +24,16 @@ export function BucketModal({
   onClose,
 }: {
   bucket: Bucket | null
-  onSave: (b: { id?: string; name: string; cat: Cat; tasks: string[]; color: string; deep: boolean }) => void
+  onSave: (b: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string }) => void
   onDelete: (id: string) => void
   onClose: () => void
 }) {
   const [name, setName] = useState(bucket?.name ?? '')
   const [cat, setCat] = useState<Cat>(bucket?.cat ?? 'work')
   const [color, setColor] = useState(bucket?.color ?? '')
-  const [deep, setDeep] = useState(bucket?.deep ?? false)
-  const [tasks, setTasks] = useState<string[]>(bucket ? bucket.tasks.map((t) => t.name) : ['New task'])
+  const [tasks, setTasks] = useState<{ name: string; deep: boolean }[]>(
+    bucket ? bucket.tasks.map((t) => ({ name: t.name, deep: t.deep })) : [{ name: 'New task', deep: false }],
+  )
 
   return (
     <Modal title={bucket ? 'Edit bucket' : 'New bucket'} onClose={onClose}>
@@ -70,21 +71,25 @@ export function BucketModal({
           </div>
         </div>
       </div>
-      <label className="check">
-        <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} /> Deep work —
-        rendered saturated; shallow buckets are muted
-      </label>
       <div className="field">
-        <label>Tasks (default 1h · adjust by 30m in the day)</label>
+        <label>Tasks (default 1h · ▲ = deep work, rendered saturated)</label>
         {tasks.map((t, i) => (
-          <div key={i} className="mb-1.5 flex gap-1.5">
+          <div key={i} className="mb-1.5 flex items-center gap-1.5">
             <input
               type="text"
               maxLength={40}
               className="flex-1"
-              value={t}
-              onChange={(e) => setTasks(tasks.map((x, j) => (j === i ? e.target.value : x)))}
+              value={t.name}
+              onChange={(e) => setTasks(tasks.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
             />
+            <button
+              type="button"
+              className={'btn ghost sm' + (t.deep ? ' deep-on' : '')}
+              title={t.deep ? 'Deep work — click to mark shallow' : 'Shallow — click to mark deep work'}
+              onClick={() => setTasks(tasks.map((x, j) => (j === i ? { ...x, deep: !x.deep } : x)))}
+            >
+              ▲
+            </button>
             <button
               type="button"
               className="btn ghost sm"
@@ -95,7 +100,11 @@ export function BucketModal({
             </button>
           </div>
         ))}
-        <button type="button" className="btn ghost sm mt-1" onClick={() => setTasks([...tasks, ''])}>
+        <button
+          type="button"
+          className="btn ghost sm mt-1"
+          onClick={() => setTasks([...tasks, { name: '', deep: false }])}
+        >
           + Add task
         </button>
       </div>
@@ -117,8 +126,7 @@ export function BucketModal({
               name: name.trim() || 'Bucket',
               cat,
               color,
-              deep,
-              tasks: tasks.map((t) => t.trim()).filter(Boolean),
+              tasks: tasks.map((t) => ({ ...t, name: t.name.trim() })).filter((t) => t.name),
             })
           }
         >

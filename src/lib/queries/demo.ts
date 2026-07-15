@@ -11,7 +11,7 @@ import {
   defaultDesignItems,
   defaultHabits,
 } from '../defaults'
-import { DEEP_CATS, plannerKey, type DesignItem, type PlannerActions, type PlannerData } from './planner'
+import { isDeepDefault, plannerKey, type DesignItem, type PlannerActions, type PlannerData } from './planner'
 
 const STORE_KEY = 'life-os-demo-v1'
 
@@ -33,6 +33,7 @@ function buildDemoData(): PlannerData {
         startMin: b.startMin,
         durMin: b.durMin,
         anchored: b.anchored,
+        deep: isDeepDefault(b.cat, b.title),
       })),
     ),
     blockLogs: {},
@@ -44,8 +45,7 @@ function buildDemoData(): PlannerData {
       cat: bk.cat,
       position,
       color: '',
-      deep: DEEP_CATS.includes(bk.cat),
-      tasks: bk.tasks.map((name, i) => ({ id: nid(), name, position: i })),
+      tasks: bk.tasks.map((name, i) => ({ id: nid(), name, position: i, deep: isDeepDefault(bk.cat, name) })),
     })),
     designItems: defaultDesignItems.map((it, position) => ({ id: nid(), position, ...it })),
     todos: [],
@@ -67,9 +67,12 @@ function load(): PlannerData {
         dumps: d.dumps ?? [],
         buckets: (d.buckets ?? []).map((bk) => ({
           color: '',
-          deep: DEEP_CATS.includes(bk.cat),
           ...bk,
+          tasks: bk.tasks.map((t) => ({ deep: isDeepDefault(bk.cat, t.name), ...t })),
         })),
+        blocksByDow: (d.blocksByDow ?? []).map((bs) =>
+          bs.map((b) => ({ deep: isDeepDefault(b.cat, b.title), ...b })),
+        ),
       }
     }
   } catch {
@@ -116,7 +119,7 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) =>
         mapDow(d, dow, (blocks) => [
           ...blocks,
-          { id, dow, position, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false },
+          { id, dow, position, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false },
         ]),
       )
       return id
@@ -175,12 +178,12 @@ export function useDemoActions(): PlannerActions {
         buckets: bucket.id
           ? d.buckets.map((bk) =>
               bk.id === bucket.id
-                ? { ...bk, name: bucket.name, cat: bucket.cat, color: bucket.color, deep: bucket.deep, tasks: bucket.tasks.map((name, i) => ({ id: nid(), name, position: i })) }
+                ? { ...bk, name: bucket.name, cat: bucket.cat, color: bucket.color, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) }
                 : bk,
             )
           : [
               ...d.buckets,
-              { id: nid(), name: bucket.name, cat: bucket.cat, position, color: bucket.color, deep: bucket.deep, tasks: bucket.tasks.map((name, i) => ({ id: nid(), name, position: i })) },
+              { id: nid(), name: bucket.name, cat: bucket.cat, position, color: bucket.color, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) },
             ],
       })),
     deleteBucket: (id) => mutate((d) => ({ ...d, buckets: d.buckets.filter((bk) => bk.id !== id) })),
@@ -246,6 +249,7 @@ export function useDemoActions(): PlannerActions {
             startMin: ((cur % 1440) + 1440) % 1440,
             durMin: it.mins,
             anchored: position === 0,
+            deep: false,
           }
           cur += it.mins
           return b

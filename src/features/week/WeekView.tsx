@@ -4,7 +4,7 @@ import { catStyles, depthClass, dowMon, fmt, fmtDur, resolve, stripeVar } from '
 import { BlockModal, type EditingBlock } from './BlockModal'
 import { DayEditor } from './DayEditor'
 
-const PXMIN = 26 / 30 // 30 min = 26px — compact; color + a few words per block
+const ROW_H = 30 // fixed row height — the week is a compact list, not a time grid
 const HOLD_MS = 320 // touch long-press before a block starts moving
 
 interface DragVis {
@@ -12,8 +12,7 @@ interface DragVis {
   fromDow: number
   dx: number
   dy: number
-  /** `min` is the snapped drop time — used when re-pinning an anchored block. */
-  target: { dow: number; idx: number; min: number } | null
+  target: { dow: number; idx: number } | null
 }
 
 export function WeekView({ data, actions, today }: ViewProps) {
@@ -24,27 +23,8 @@ export function WeekView({ data, actions, today }: ViewProps) {
   const styles = catStyles(data.buckets)
 
   const resolved = data.blocksByDow.map((blocks) => resolve(blocks))
-  let axisStart: number | null = null
-  let axisEnd: number | null = null
-  for (const res of resolved) {
-    if (!res.length) continue
-    const s = res[0].start
-    const e = res[res.length - 1].start + res[res.length - 1].block.durMin
-    if (axisStart === null || s < axisStart) axisStart = s
-    if (axisEnd === null || e > axisEnd) axisEnd = e
-  }
-  if (axisStart === null || axisEnd === null) {
-    axisStart = 300
-    axisEnd = 1320
-  }
-  const spanPx = Math.round((axisEnd - axisStart) * PXMIN)
-  const hourPx = Math.round(60 * PXMIN)
-  const gridBg = `repeating-linear-gradient(to bottom, var(--line-soft) 0, var(--line-soft) 1px, transparent 1px, transparent ${hourPx}px)`
 
-  const hourLabels: number[] = []
-  for (let mm = Math.ceil(axisStart / 60) * 60; mm <= axisEnd; mm += 60) hourLabels.push(mm)
-
-  // ----- drag a block across the grid (pointer-based, touch-friendly) -----
+  // ----- drag a block across the list grid (pointer-based, touch-friendly) -----
 
   const colRefs = useRef<(HTMLDivElement | null)[]>([])
   // Drag state lives in a ref (always current at pointerup); dragVis mirrors it for rendering.
@@ -57,7 +37,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
     active: boolean
     anchored: boolean
     rects: (DOMRect | null)[]
-    target: { dow: number; idx: number; min: number } | null
+    target: { dow: number; idx: number } | null
   } | null>(null)
   const suppressClick = useRef(false)
   const blockScroll = useRef<((ev: TouchEvent) => void) | null>(null)
@@ -65,21 +45,8 @@ export function WeekView({ data, actions, today }: ViewProps) {
   function insertIdxAt(dow: number, clientY: number): number {
     const rect = press.current?.rects[dow]
     if (!rect) return data.blocksByDow[dow].length
-    const y = clientY - rect.top
-    const res = resolved[dow]
-    for (let i = 0; i < res.length; i++) {
-      const mid = (res[i].start + res[i].block.durMin / 2 - axisStart!) * PXMIN
-      if (y < mid) return i
-    }
-    return res.length
-  }
-
-  /** Snapped (30-min) time at the pointer inside a day column. */
-  function minuteAt(dow: number, clientY: number): number {
-    const rect = press.current?.rects[dow]
-    if (!rect) return axisStart!
-    const raw = axisStart! + (clientY - rect.top) / PXMIN
-    return Math.max(0, Math.min(1410, Math.round(raw / 30) * 30))
+    const idx = Math.round((clientY - rect.top) / ROW_H)
+    return Math.max(0, Math.min(data.blocksByDow[dow].length, idx))
   }
 
   function dayAt(clientX: number): number {
@@ -110,7 +77,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
     blockScroll.current = blocker
     navigator.vibrate?.(30)
     const dow = dayAt(e.clientX)
-    p.target = { dow, idx: insertIdxAt(dow, e.clientY), min: minuteAt(dow, e.clientY) }
+    p.target = { dow, idx: insertIdxAt(dow, e.clientY) }
     setDragVis({ id: p.id, fromDow: p.dow, dx: 0, dy: 0, target: p.target })
   }
 
@@ -141,7 +108,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
       active: false,
       anchored: data.blocksByDow[dow].find((b) => b.id === id)?.anchored ?? false,
       rects: [] as (DOMRect | null)[],
-      target: null as { dow: number; idx: number; min: number } | null,
+      target: null as { dow: number; idx: number } | null,
     }
     press.current = p
     if (e.pointerType !== 'mouse') {
@@ -165,7 +132,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
     e.preventDefault()
     const p2 = press.current!
     const dow = dayAt(e.clientX)
-    p2.target = { dow, idx: insertIdxAt(dow, e.clientY), min: minuteAt(dow, e.clientY) }
+    p2.target = { dow, idx: insertIdxAt(dow, e.clientY) }
     setDragVis({ id: p2.id, fromDow: p2.dow, dx, dy, target: p2.target })
   }
 
@@ -181,25 +148,24 @@ export function WeekView({ data, actions, today }: ViewProps) {
     cleanupPress()
     if (!t) return
     if (t.dow === fromDow) {
+      const fromIdx = data.blocksByDow[fromDow].findIndex((b) => b.id === id)
+      const ids = data.blocksByDow[fromDow].map((b) => b.id).filter((x) => x !== id)
+      const idx = fromIdx >= 0 && fromIdx < t.idx ? t.idx - 1 : t.idx
+      ids.splice(Math.min(idx, ids.length), 0, id)
+      const changed = ids.some((x, i) => x !== data.blocksByDow[fromDow][i]?.id)
+      if (!changed) return
       if (anchored) {
-        // Vertical drag of a pinned block = move the pin to the drop time,
-        // then keep positions sorted by the resulting times.
-        const starts = new Map(resolved[fromDow].map((r) => [r.block.id, r.start]))
-        starts.set(id, t.min)
-        const ids = [...data.blocksByDow[fromDow]]
-          .sort((a, b) => starts.get(a.id)! - starts.get(b.id)! || a.position - b.position)
-          .map((b) => b.id)
-        await actions.updateBlock(id, { startMin: t.min })
-        if (ids.some((x, i) => x !== data.blocksByDow[fromDow][i]?.id))
-          await actions.reorderBlocks(fromDow, ids)
-      } else {
-        const fromIdx = data.blocksByDow[fromDow].findIndex((b) => b.id === id)
-        const ids = data.blocksByDow[fromDow].map((b) => b.id).filter((x) => x !== id)
-        const idx = fromIdx >= 0 && fromIdx < t.idx ? t.idx - 1 : t.idx
-        ids.splice(Math.min(idx, ids.length), 0, id)
-        if (ids.some((x, i) => x !== data.blocksByDow[fromDow][i]?.id))
-          await actions.reorderBlocks(fromDow, ids)
+        // A pinned block dropped into a new slot re-pins right after the row
+        // above it (or takes the day's start when dropped on top). The rest
+        // of the day is laid out *without* the dragged block so the new pin
+        // reflects where things flow once it leaves its old slot.
+        const others = resolve(data.blocksByDow[fromDow].filter((b) => b.id !== id))
+        const newIdx = ids.indexOf(id)
+        const prev = newIdx > 0 ? others[newIdx - 1] : null
+        const startMin = prev ? prev.start + prev.block.durMin : others[0]?.start ?? 300
+        await actions.updateBlock(id, { startMin: Math.min(1439, startMin) })
       }
+      await actions.reorderBlocks(fromDow, ids)
     } else {
       const ids = data.blocksByDow[t.dow].map((b) => b.id)
       ids.splice(Math.min(t.idx, ids.length), 0, id)
@@ -213,7 +179,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
         <h2>The week</h2>
         <p>
           Your standing rhythm and this week's plan in one place. Click a day to design it; hold and drag a
-          block to move it — 📌 anchors hold their time, everything between re-flows.
+          block to move it — 📌 anchors hold their time, ▲ deep work is saturated.
         </p>
       </div>
       <div className="mb-5 flex flex-wrap gap-x-[15px] gap-y-[7px]">
@@ -221,23 +187,10 @@ export function WeekView({ data, actions, today }: ViewProps) {
           <span key={bk.id} className={`legend-chip s-${bk.cat}`} style={stripeVar(styles[bk.cat])}>
             <span className="dot" />
             {bk.name}
-            {bk.deep ? ' ·▲' : ''}
           </span>
         ))}
       </div>
-      <div className="week">
-        <div>
-          <div className="day-head" style={{ borderBottomColor: 'transparent', background: 'transparent' }}>
-            <span className="gname">Time</span>
-          </div>
-          <div className="blocks" style={{ height: spanPx }}>
-            {hourLabels.map((mm) => (
-              <div key={mm} className="hourlab" style={{ top: Math.round((mm - axisStart!) * PXMIN) }}>
-                {fmt(mm)}
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="week week-list">
         {data.days.map((day, di) => (
           <div key={di} className={'day' + (di === todayDow ? ' today' : '')}>
             <div className="day-head">
@@ -250,29 +203,25 @@ export function WeekView({ data, actions, today }: ViewProps) {
               </span>
             </div>
             <div
-              className="blocks"
+              className="wrows"
               ref={(el) => {
                 colRefs.current[di] = el
               }}
-              style={{ height: spanPx, background: gridBg }}
             >
               {resolved[di].map(({ block: b, start, conflict }) => {
-                const top = Math.round((start - axisStart!) * PXMIN)
-                const hpx = Math.round(b.durMin * PXMIN)
-                const lines = Math.max(1, Math.floor((hpx - 4) / 13))
-                const tip = `${fmt(start)} · ${fmtDur(b.durMin)} — ${b.title}${b.detail ? '\n' + b.detail : ''}`
                 const isDragging = dragVis?.id === b.id
+                const tip = `${fmt(start)} · ${fmtDur(b.durMin)} — ${b.title}${b.detail ? '\n' + b.detail : ''}`
                 return (
                   <div
                     key={b.id}
-                    className={`block s-${b.cat}${depthClass(styles[b.cat])}${b.cat === 'open' ? ' is-open' : ''}${conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}`}
+                    className={`wrow s-${b.cat}${depthClass(b.deep)}${b.cat === 'open' ? ' is-open' : ''}${conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}`}
                     style={{
                       ...stripeVar(styles[b.cat]),
-                      top,
-                      height: hpx,
+                      height: ROW_H,
                       ...(isDragging && {
                         transform: `translate(${dragVis.dx}px, ${dragVis.dy}px)`,
                         zIndex: 20,
+                        position: 'relative' as const,
                       }),
                     }}
                     tabIndex={0}
@@ -295,32 +244,17 @@ export function WeekView({ data, actions, today }: ViewProps) {
                       }
                     }}
                   >
-                    <div className="title" style={{ WebkitLineClamp: lines }}>
+                    <span className="t">{fmt(start)}</span>
+                    <span className="nm">
                       {b.title}
                       {b.anchored ? <span className="text-[8px]"> 📌</span> : null}
-                    </div>
+                    </span>
+                    <span className="d">{fmtDur(b.durMin)}</span>
                   </div>
                 )
               })}
               {dragVis?.target?.dow === di && (
-                <div
-                  className="drop-line"
-                  style={{
-                    top:
-                      dragVis.fromDow === di && press.current?.anchored
-                        ? Math.round((dragVis.target.min - axisStart!) * PXMIN)
-                        : dragVis.target.idx < resolved[di].length
-                          ? Math.round((resolved[di][dragVis.target.idx].start - axisStart!) * PXMIN)
-                          : resolved[di].length
-                            ? Math.round(
-                                (resolved[di][resolved[di].length - 1].start +
-                                  resolved[di][resolved[di].length - 1].block.durMin -
-                                  axisStart!) *
-                                  PXMIN,
-                              )
-                            : 0,
-                  }}
-                />
+                <div className="drop-line" style={{ top: dragVis.target.idx * ROW_H }} />
               )}
             </div>
             <div className="p-[6px_8px]">
