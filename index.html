@@ -474,8 +474,11 @@ document.addEventListener("DOMContentLoaded", function(){
 <div class="scrim" id="scrim">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <h3 id="modalTitle">Edit block</h3>
-    <div class="field"><label for="fCat">Category</label><select id="fCat"></select></div>
-    <div class="field"><label for="fTitle">Title</label><input type="text" id="fTitle" maxlength="80"></div>
+    <div class="row2">
+      <div class="field"><label for="fBucket">Bucket</label><select id="fBucket"></select></div>
+      <div class="field"><label for="fTask">Task</label><select id="fTask"></select></div>
+    </div>
+    <div class="field"><label for="fTitle">Label (from task, editable)</label><input type="text" id="fTitle" maxlength="80"></div>
     <div class="field"><label for="fDesc">Detail</label><textarea id="fDesc" maxlength="240"></textarea></div>
     <div class="row2">
       <div class="field"><label for="fDur">Duration (min)</label><input type="number" id="fDur" min="5" max="720" step="5"></div>
@@ -797,17 +800,33 @@ window.__runApp=function(){
 
   // ---- block modal ----
   var scrim=document.getElementById("scrim"), editing=null;
-  (function(){ var sel=document.getElementById("fCat"); Object.keys(CATS).forEach(function(k){ var o=document.createElement("option"); o.value=k; o.textContent=CATS[k]; sel.appendChild(o); }); })();
+  function fillBuckets(){ var sel=document.getElementById("fBucket"); sel.innerHTML="";
+    state.buckets.forEach(function(bk){ var o=document.createElement("option"); o.value=bk.id; o.textContent=bk.name; sel.appendChild(o); }); }
+  function fillTasks(bucketId){ var sel=document.getElementById("fTask"); sel.innerHTML="";
+    var bk=state.buckets.filter(function(x){return x.id===bucketId;})[0];
+    if(bk) bk.tasks.forEach(function(tk){ var o=document.createElement("option"); o.value=tk.name; o.textContent=tk.name; sel.appendChild(o); });
+    var c=document.createElement("option"); c.value="__custom"; c.textContent="(custom…)"; sel.appendChild(c); }
+  document.getElementById("fBucket").onchange=function(){ fillTasks(this.value);
+    var sel=document.getElementById("fTask"); if(sel.value!=="__custom") document.getElementById("fTitle").value=sel.value; };
+  document.getElementById("fTask").onchange=function(){ if(this.value!=="__custom") document.getElementById("fTitle").value=this.value; };
   function openEditor(di,bi){ editing={di:di,bi:bi}; var b=state.days[di].blocks[bi];
     document.getElementById("modalTitle").textContent=state.days[di].name+" · edit block";
-    document.getElementById("fCat").value=b.cat; document.getElementById("fTitle").value=b.title; document.getElementById("fDesc").value=b.desc;
+    fillBuckets();
+    // pick the bucket matching this block's category (fall back to first)
+    var bk=state.buckets.filter(function(x){return x.cat===b.cat;})[0]||state.buckets[0];
+    if(bk) document.getElementById("fBucket").value=bk.id;
+    fillTasks(bk?bk.id:null);
+    var hasTask=bk && bk.tasks.some(function(t){return t.name===b.title;});
+    document.getElementById("fTask").value=hasTask?b.title:"__custom";
+    document.getElementById("fTitle").value=b.title; document.getElementById("fDesc").value=b.desc;
     document.getElementById("fDur").value=b.dur; document.getElementById("fAnchor").checked=b.anchor;
     var res=resolve(state.days[di].blocks)[bi]; document.getElementById("fStart").value=fmt(b.anchor?b.start:res.start); syncStart();
     scrim.classList.add("open"); document.getElementById("fTitle").focus(); }
   function syncStart(){ document.getElementById("fStart").disabled=!document.getElementById("fAnchor").checked; }
   function closeEditor(){ scrim.classList.remove("open"); editing=null; }
   function commitBlock(){ if(!editing)return; var b=state.days[editing.di].blocks[editing.bi];
-    b.cat=document.getElementById("fCat").value; b.title=document.getElementById("fTitle").value.trim()||"(untitled)";
+    var bk=state.buckets.filter(function(x){return x.id===document.getElementById("fBucket").value;})[0];
+    if(bk) b.cat=bk.cat; b.title=document.getElementById("fTitle").value.trim()||"(untitled)";
     b.desc=document.getElementById("fDesc").value.trim(); b.dur=Math.max(5,parseInt(document.getElementById("fDur").value,10)||30);
     b.anchor=document.getElementById("fAnchor").checked;
     if(b.anchor){ var t=document.getElementById("fStart").value.split(":"); b.start=(parseInt(t[0],10)||0)*60+(parseInt(t[1],10)||0); }
