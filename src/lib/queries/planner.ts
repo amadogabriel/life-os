@@ -317,7 +317,15 @@ export interface PlannerActions {
   deleteTodo(id: string): Promise<void>
   addDump(text: string): Promise<void>
   deleteDump(id: string): Promise<void>
-  addLogEntry(entry: { onDate: string; kind: LogKind; text: string; cat?: Cat; signifier?: LogSignifier }): Promise<void>
+  addLogEntry(entry: {
+    onDate: string
+    kind: LogKind
+    text: string
+    cat?: Cat
+    signifier?: LogSignifier
+    projectId?: string | null
+    sprintId?: string | null
+  }): Promise<void>
   updateLogEntry(
     id: string,
     fields: Partial<
@@ -618,6 +626,8 @@ export function usePlannerActions(userId: string): PlannerActions {
         text: entry.text,
         cat: entry.cat ?? 'open',
         signifier: entry.signifier ?? '',
+        project_id: entry.projectId ?? null,
+        sprint_id: entry.sprintId ?? null,
         position,
       })
       if (error) throw error

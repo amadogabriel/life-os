@@ -3,6 +3,7 @@ import type { ViewProps } from '../../App'
 import {
   bullet,
   catStyles,
+  isoDate,
   stripeVar,
   type LogEntry,
   type Project,
@@ -43,11 +44,13 @@ const StatusPill = ({ status, onClick }: { status: string; onClick?: () => void 
   </button>
 )
 
-export function ProjectsView({ data, actions }: ViewProps) {
+export function ProjectsView({ data, actions, today }: ViewProps) {
   const [sel, setSel] = useState<string | null>(null)
   const [pName, setPName] = useState('')
   const [sName, setSName] = useState('')
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const styles = catStyles(data.buckets)
+  const todayIso = isoDate(today)
 
   const projects = [...data.projects].sort((a, b) => a.position - b.position)
   const project = projects.find((p) => p.id === sel) ?? null
@@ -81,6 +84,23 @@ export function ProjectsView({ data, actions }: ViewProps) {
     if (e.kind === 'note') fields.kind = 'task' // processing a note into a project makes it a task
     actions.updateLogEntry(e.id, fields)
   }
+
+  async function addTask(key: string, sprintId: string | null) {
+    const text = (drafts[key] ?? '').trim()
+    if (!text || !project) return
+    setDrafts((d) => ({ ...d, [key]: '' }))
+    await actions.addLogEntry({ onDate: todayIso, kind: 'task', text, projectId: project.id, sprintId })
+  }
+  const addRow = (key: string, sprintId: string | null) => (
+    <input
+      className="qi"
+      placeholder="+ add task…"
+      style={{ fontSize: 12, padding: '4px 6px' }}
+      value={drafts[key] ?? ''}
+      onChange={(e) => setDrafts((d) => ({ ...d, [key]: e.target.value }))}
+      onKeyDown={(e) => e.key === 'Enter' && addTask(key, sprintId)}
+    />
+  )
 
   const countFor = (p: Project) => data.logEntries.filter((e) => e.projectId === p.id).length
   const sprintCountFor = (p: Project) => data.sprints.filter((s) => s.projectId === p.id).length
@@ -252,10 +272,10 @@ export function ProjectsView({ data, actions }: ViewProps) {
         </Column>
 
         <Column title={`Backlog · ${backlog.length}`}>
-          {backlog.length === 0 && <div className="hint p-1">Pull items here or into a sprint.</div>}
           {backlog.map((e) => (
             <EntryCard key={e.id} e={e} here="backlog" />
           ))}
+          {addRow('backlog', null)}
         </Column>
 
         {sprints.map((s) => {
@@ -267,10 +287,10 @@ export function ProjectsView({ data, actions }: ViewProps) {
               title={`${s.name} · ${done}/${tasks.length}`}
               extra={<StatusPill status={s.status} onClick={() => actions.updateSprint(s.id, { status: SPRINT_NEXT[s.status] })} />}
             >
-              {tasks.length === 0 && <div className="hint p-1">No tasks yet.</div>}
               {tasks.map((e) => (
                 <EntryCard key={e.id} e={e} here={s.id} />
               ))}
+              {addRow(s.id, s.id)}
             </Column>
           )
         })}
