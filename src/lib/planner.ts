@@ -372,3 +372,71 @@ export function fortnightReport(
     bestStreak: habitRows.reduce((x, r) => Math.max(x, r.streak), 0),
   }
 }
+
+// ---------- accomplishments (what got done, not hours) ----------
+
+export interface CatAccomplishment {
+  cat: Cat
+  titles: { title: string; count: number; deep: boolean }[]
+  mins: number
+  deepSessions: number
+}
+
+export interface Accomplishments {
+  byCat: CatAccomplishment[]
+  tasksDone: number
+  events: number
+  migrated: number
+  deepSessions: number
+  totalBlocks: number
+}
+
+/**
+ * What real work was completed in the inclusive [startIso, endIso] window,
+ * from the frozen block-log snapshots and the bullet-journal entries. Blocks
+ * are grouped by commitment with their distinct titles (× repeat count);
+ * `life`/`open` are excluded. This is the accomplishment view — not hours.
+ */
+export function windowAccomplishments(
+  blockLogRows: BlockLogRow[],
+  logEntries: LogEntry[],
+  startIso: string,
+  endIso: string,
+): Accomplishments {
+  const inWin = (iso: string) => iso >= startIso && iso <= endIso
+  const catMap = new Map<Cat, CatAccomplishment>()
+  let totalBlocks = 0
+  let deepSessions = 0
+
+  for (const r of blockLogRows) {
+    if (!inWin(r.dateIso) || !COUNTED.includes(r.cat)) continue
+    totalBlocks++
+    if (r.deep) deepSessions++
+    const entry = catMap.get(r.cat) ?? { cat: r.cat, titles: [], mins: 0, deepSessions: 0 }
+    entry.mins += r.durMin
+    if (r.deep) entry.deepSessions++
+    const t = entry.titles.find((x) => x.title === r.title)
+    if (t) {
+      t.count++
+      t.deep = t.deep || r.deep
+    } else {
+      entry.titles.push({ title: r.title, count: 1, deep: r.deep })
+    }
+    catMap.set(r.cat, entry)
+  }
+
+  const byCat = [...catMap.values()].sort((a, b) => b.mins - a.mins)
+  for (const c of byCat) c.titles.sort((a, b) => Number(b.deep) - Number(a.deep) || b.count - a.count)
+
+  let tasksDone = 0
+  let events = 0
+  let migrated = 0
+  for (const e of logEntries) {
+    if (!inWin(e.onDate)) continue
+    if (e.kind === 'task' && e.state === 'done') tasksDone++
+    else if (e.kind === 'task' && e.state === 'migrated') migrated++
+    if (e.kind === 'event') events++
+  }
+
+  return { byCat, tasksDone, events, migrated, deepSessions, totalBlocks }
+}

@@ -296,6 +296,9 @@ export interface PlannerActions {
     fields: Partial<Pick<LogEntry, 'text' | 'kind' | 'state' | 'signifier' | 'cat' | 'onDate' | 'position' | 'migratedTo'>>,
   ): Promise<void>
   deleteLogEntry(id: string): Promise<void>
+  /** Carry an open entry to `toDate`: create a fresh open copy there and mark
+   *  the original migrated (or scheduled, when moving to a future day). */
+  migrateLogEntry(id: string, toDate: string, asScheduled?: boolean): Promise<void>
   addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<string>
   updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
   swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
@@ -607,6 +610,33 @@ export function usePlannerActions(userId: string): PlannerActions {
       patch((data) => ({ ...data, logEntries: data.logEntries.filter((e) => e.id !== id) }))
       const { error } = await supabase.from('log_entries').delete().eq('id', id)
       if (error) invalidate()
+    },
+
+    async migrateLogEntry(id, toDate, asScheduled = false) {
+      const all = qc.getQueryData<PlannerData>(plannerKey)?.logEntries ?? []
+      const src = all.find((e) => e.id === id)
+      if (!src) return
+      const position = all.filter((e) => e.onDate === toDate).reduce((m, e) => Math.max(m, e.position + 1), 0)
+      const { data, error } = await supabase
+        .from('log_entries')
+        .insert({
+          user_id: userId,
+          on_date: toDate,
+          kind: src.kind,
+          text: src.text,
+          cat: src.cat,
+          signifier: src.signifier,
+          position,
+        })
+        .select('id')
+        .single()
+      if (error) throw error
+      const { error: uErr } = await supabase
+        .from('log_entries')
+        .update({ state: asScheduled ? 'scheduled' : 'migrated', migrated_to: data.id, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (uErr) throw uErr
+      await invalidate()
     },
 
     async addDesignItem(item: { name: string; cat: Cat }, position: number) {

@@ -2,7 +2,7 @@
 // layer, but the whole planner lives in localStorage. Active when no Supabase
 // env is configured — lets you run and click through the app with no project.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Block, BlockLogRow, Cat } from '../planner'
+import type { Block, BlockLogRow, Cat, LogState } from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -251,6 +251,37 @@ export function useDemoActions(): PlannerActions {
     updateLogEntry: (id, fields) =>
       mutate((d) => ({ ...d, logEntries: d.logEntries.map((e) => (e.id === id ? { ...e, ...fields } : e)) })),
     deleteLogEntry: (id) => mutate((d) => ({ ...d, logEntries: d.logEntries.filter((e) => e.id !== id) })),
+    migrateLogEntry: (id, toDate, asScheduled = false) =>
+      mutate((d) => {
+        const src = d.logEntries.find((e) => e.id === id)
+        if (!src) return d
+        const position = d.logEntries
+          .filter((e) => e.onDate === toDate)
+          .reduce((m, e) => Math.max(m, e.position + 1), 0)
+        const copyId = nid()
+        return {
+          ...d,
+          logEntries: [
+            ...d.logEntries.map((e) =>
+              e.id === id
+                ? { ...e, state: (asScheduled ? 'scheduled' : 'migrated') as LogState, migratedTo: copyId }
+                : e,
+            ),
+            {
+              id: copyId,
+              onDate: toDate,
+              kind: src.kind,
+              state: 'open',
+              signifier: src.signifier,
+              text: src.text,
+              cat: src.cat,
+              blockId: null,
+              migratedTo: null,
+              position,
+            },
+          ],
+        }
+      }),
 
     async addDesignItem(item, position) {
       const id = nid()

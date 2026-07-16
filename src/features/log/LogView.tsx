@@ -39,8 +39,16 @@ const KINDS: { kind: LogKind; glyph: string; label: string }[] = [
   { kind: 'note', glyph: '—', label: 'Note' },
 ]
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
 const longDate = (d: Date) =>
   d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
+
+/** "Jul 15" from an ISO date string, timezone-safe (no Date parsing). */
+const mdShort = (iso: string) => {
+  const [, m, d] = iso.split('-').map(Number)
+  return `${MONTHS[m - 1]} ${d}`
+}
 
 export function LogView({ data, actions, today }: ViewProps) {
   const [offset, setOffset] = useState(0)
@@ -69,11 +77,21 @@ export function LogView({ data, actions, today }: ViewProps) {
     .map((id) => data.habits.find((h) => h.id === id))
     .filter((h): h is NonNullable<typeof h> => !!h)
 
+  // Migration ritual: open tasks stranded on a day before today.
+  const realTodayIso = isoDate(today)
+  const staleOpen = data.logEntries
+    .filter((e) => e.kind === 'task' && e.state === 'open' && e.onDate < realTodayIso)
+    .sort((a, b) => a.onDate.localeCompare(b.onDate))
+
   async function submit() {
     const t = text.trim()
     if (!t) return
     setText('')
     await actions.addLogEntry({ onDate: selIso, kind, text: t })
+  }
+
+  async function carryAll() {
+    for (const e of staleOpen) await actions.migrateLogEntry(e.id, realTodayIso, false)
   }
 
   return (
@@ -101,6 +119,44 @@ export function LogView({ data, actions, today }: ViewProps) {
           </button>
         </div>
       </div>
+
+      {/* migration ritual — carry forward open tasks stranded on earlier days */}
+      {isToday && staleOpen.length > 0 && (
+        <div className="mb-4">
+          <Card
+            title={`Migrate · ${staleOpen.length} open from earlier`}
+            action={
+              <button className="btn ghost sm" onClick={carryAll}>
+                Carry all → today
+              </button>
+            }
+          >
+            {staleOpen.map((e) => (
+              <div key={e.id} className="litem" style={stripeVar(styles[e.cat])}>
+                <span
+                  className="bullet"
+                  style={{ fontFamily: 'var(--mono)', fontSize: 10, minWidth: 52, color: 'var(--ink-faint)' }}
+                >
+                  {mdShort(e.onDate)}
+                </span>
+                <span className="txt">
+                  {e.signifier === 'priority' && <span style={{ color: 'var(--accent)', marginRight: 5 }}>✷</span>}
+                  {e.text}
+                </span>
+                <button className="btn ghost sm" title="Carry forward to today" onClick={() => actions.migrateLogEntry(e.id, realTodayIso, false)}>
+                  › today
+                </button>
+                <button className="x" title="Drop — no longer relevant" onClick={() => actions.updateLogEntry(e.id, { state: 'dropped' })}>
+                  ✕
+                </button>
+              </div>
+            ))}
+            <div className="hint">
+              Carry what still matters, drop what doesn't. Migrated tasks stay as a record on their original day.
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="grid items-start gap-4 lg:grid-cols-[1.4fr_1fr] max-lg:grid-cols-1">
         {/* the day's rapid log */}

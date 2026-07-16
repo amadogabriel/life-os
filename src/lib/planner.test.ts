@@ -10,8 +10,11 @@ import {
   streak,
   weekDates,
   weekStats,
+  windowAccomplishments,
   type Block,
+  type BlockLogRow,
   type Habit,
+  type LogEntry,
   type LogMap,
 } from './planner'
 
@@ -166,5 +169,58 @@ describe('fortnightReport', () => {
     const logs: LogMap = { '2026-07-15': { blk: true } }
     const rep = fortnightReport(blocksByDow, logs, [], {}, today, -1)
     expect(rep.doneBlocks).toBe(0)
+  })
+})
+
+describe('windowAccomplishments', () => {
+  const row = (over: Partial<BlockLogRow>): BlockLogRow => ({
+    blockId: 'b',
+    dateIso: '2026-07-15',
+    title: 'Deep work',
+    cat: 'work',
+    durMin: 60,
+    deep: false,
+    ...over,
+  })
+  const entry = (over: Partial<LogEntry>): LogEntry => ({
+    id: 'e',
+    onDate: '2026-07-15',
+    kind: 'task',
+    state: 'done',
+    signifier: '',
+    text: 't',
+    cat: 'open',
+    blockId: null,
+    migratedTo: null,
+    position: 0,
+    ...over,
+  })
+
+  it('groups completed blocks by commitment and counts repeats', () => {
+    const rows = [
+      row({ blockId: 'a', title: 'Math focus', cat: 'math', deep: true }),
+      row({ blockId: 'b', dateIso: '2026-07-14', title: 'Math focus', cat: 'math', deep: true }),
+      row({ blockId: 'c', title: 'Sleep', cat: 'life' }), // excluded (life)
+    ]
+    const acc = windowAccomplishments(rows, [], '2026-07-02', '2026-07-15')
+    expect(acc.byCat).toHaveLength(1)
+    expect(acc.byCat[0].cat).toBe('math')
+    expect(acc.byCat[0].titles[0]).toEqual({ title: 'Math focus', count: 2, deep: true })
+    expect(acc.deepSessions).toBe(2)
+    expect(acc.totalBlocks).toBe(2)
+  })
+
+  it('counts done tasks, events and migrations, ignoring out-of-window rows', () => {
+    const entries = [
+      entry({ id: '1', kind: 'task', state: 'done' }),
+      entry({ id: '2', kind: 'task', state: 'migrated' }),
+      entry({ id: '3', kind: 'event', state: 'open' }),
+      entry({ id: '4', kind: 'task', state: 'open' }), // still open, not counted
+      entry({ id: '5', kind: 'task', state: 'done', onDate: '2026-06-01' }), // out of window
+    ]
+    const acc = windowAccomplishments([], entries, '2026-07-02', '2026-07-15')
+    expect(acc.tasksDone).toBe(1)
+    expect(acc.migrated).toBe(1)
+    expect(acc.events).toBe(1)
   })
 })
