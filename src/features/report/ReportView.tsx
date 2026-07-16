@@ -1,181 +1,165 @@
-import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import {
+  addDays,
   CATS,
   catStyles,
   fmtDur,
-  fortnightReport,
   isoDate,
+  streak,
   stripeVar,
+  weekDates,
   windowAccomplishments,
 } from '../../lib/planner'
 
-const shortDate = (d: Date) =>
-  ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()] +
-  ' ' +
-  d.getDate()
-
-const mdShort = (iso: string) => {
-  const [, m, d] = iso.split('-').map(Number)
-  return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1] + ' ' + d
-}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const md = (d: Date) => `${MONTHS[d.getMonth()]} ${d.getDate()}`
+/** "Jul 13 – 19" (same month) or "Jun 29 – Jul 5". */
+const weekLabel = (a: Date, b: Date) =>
+  a.getMonth() === b.getMonth() ? `${md(a)} – ${b.getDate()}` : `${md(a)} – ${md(b)}`
 
 export function ReportView({ data, today }: ViewProps) {
-  const [offset, setOffset] = useState(0)
-  const rep = fortnightReport(data.blocksByDow, data.blockLogs, data.habits, data.habitLogs, today, offset)
-  const winStart = isoDate(rep.start)
-  const winEnd = isoDate(rep.end)
-  const acc = windowAccomplishments(data.blockLogRows, data.logEntries, winStart, winEnd)
   const styles = catStyles(data.buckets)
 
-  // Completed tasks + events rapid-logged in this window — the "wins" list.
-  const wins = data.logEntries
-    .filter((e) => e.onDate >= winStart && e.onDate <= winEnd)
-    .filter((e) => (e.kind === 'task' && e.state === 'done') || e.kind === 'event')
-    .sort((a, b) => b.onDate.localeCompare(a.onDate))
+  // Earliest day we have any record for — bounds how far back the weeks go.
+  const allDates = [...data.blockLogRows.map((r) => r.dateIso), ...data.logEntries.map((e) => e.onDate)]
+  const earliest = allDates.length ? allDates.reduce((a, b) => (a < b ? a : b)) : isoDate(today)
 
-  const cards = [
-    { n: `${acc.tasksDone}`, l: 'Tasks completed' },
-    { n: `${acc.deepSessions}`, l: 'Deep sessions' },
-    { n: rep.bestStreak > 0 ? `🔥 ${rep.bestStreak}` : '—', l: 'Best current streak' },
-    { n: `${acc.migrated}`, l: 'Carried forward' },
-  ]
+  const weeks: {
+    label: string
+    startIso: string
+    endIso: string
+    acc: ReturnType<typeof windowAccomplishments>
+    habitsDone: number
+    activeDays: number
+    wins: typeof data.logEntries
+  }[] = []
 
-  const nothingDone = acc.byCat.length === 0 && wins.length === 0
+  for (let k = 0; k < 26; k++) {
+    const wd = weekDates(addDays(today, -7 * k))
+    const startIso = isoDate(wd[0])
+    const endIso = isoDate(wd[6])
+    if (k > 0 && endIso < earliest) break
+    const acc = windowAccomplishments(data.blockLogRows, data.logEntries, startIso, endIso)
+    let habitsDone = 0
+    const activeSet = new Set<string>()
+    for (const d of wd) {
+      const iso = isoDate(d)
+      const h = Object.keys(data.habitLogs[iso] ?? {}).length
+      habitsDone += h
+      if (h > 0) activeSet.add(iso)
+    }
+    for (const r of data.blockLogRows) if (r.dateIso >= startIso && r.dateIso <= endIso) activeSet.add(r.dateIso)
+    const wins = data.logEntries
+      .filter((e) => e.onDate >= startIso && e.onDate <= endIso)
+      .filter((e) => (e.kind === 'task' && e.state === 'done') || e.kind === 'event')
+      .sort((a, b) => b.onDate.localeCompare(a.onDate))
+    weeks.push({ label: weekLabel(wd[0], wd[6]), startIso, endIso, acc, habitsDone, activeDays: activeSet.size, wins })
+  }
+
+  const topStreaks = data.habits
+    .map((h) => ({ h, s: streak(h, data.habitLogs, today) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 4)
 
   return (
     <div>
-      <div className="view-head mb-[18px] flex flex-wrap items-baseline gap-[14px]">
-        <div className="flex-1">
-          <h2>Fortnight report</h2>
-          <p>
-            {shortDate(rep.start)} – {shortDate(rep.end)}
-            {offset === 0 ? ' · ending today' : ''}
-          </p>
-        </div>
-        <div className="flex gap-1.5">
-          <button className="btn ghost sm" onClick={() => setOffset(offset - 1)}>
-            ← Earlier
-          </button>
-          <button className="btn ghost sm" onClick={() => offset < 0 && setOffset(offset + 1)}>
-            Later →
-          </button>
-        </div>
+      <div className="view-head mb-[18px]">
+        <h2>Where your weeks went</h2>
+        <p>Your weeks, most recent first — what actually got done, not hours logged.</p>
       </div>
 
-      <div className="mb-[22px] grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-        {cards.map((c, i) => (
-          <div key={i} className="statcard">
-            <div className="n">{c.n}</div>
-            <div className="l">{c.l}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="subhead">What you accomplished</div>
-      {nothingDone && (
-        <div className="hint px-0">
-          Nothing checked off in this window yet — completed blocks and tasks will show up here.
+      {topStreaks.length > 0 && (
+        <div className="mb-5 flex flex-wrap gap-2">
+          {topStreaks.map(({ h, s }) => (
+            <span key={h.id} className={`htog s-${h.cat}`} style={stripeVar(styles[h.cat])}>
+              🔥 {s} · {h.name}
+            </span>
+          ))}
         </div>
       )}
-      <div className="flex flex-col gap-3">
-        {acc.byCat.map((c) => (
-          <div
-            key={c.cat}
-            className="overflow-hidden rounded-xl border"
-            style={{ background: 'var(--card)', borderColor: 'var(--line)' }}
-          >
+
+      <div className="flex flex-col gap-4">
+        {weeks.map((w, i) => {
+          const quiet = w.acc.totalBlocks === 0 && w.wins.length === 0 && w.habitsDone === 0
+          return (
             <div
-              className="flex items-center justify-between border-b px-4 py-2.5"
-              style={{ borderColor: 'var(--line-soft)' }}
+              key={w.startIso}
+              className="overflow-hidden rounded-xl border"
+              style={{ background: 'var(--card)', borderColor: 'var(--line)' }}
             >
-              <span className={`qname s-${c.cat}`} style={stripeVar(styles[c.cat])}>
-                <span className="dot" />
-                {CATS[c.cat]}
-              </span>
-              <span className="text-[12px]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}>
-                {c.titles.reduce((n, t) => n + t.count, 0)} done
-                {c.deepSessions > 0 ? ` · ${c.deepSessions} deep` : ''} ·{' '}
-                <span style={{ opacity: 0.7 }}>{fmtDur(c.mins) || '0m'}</span>
-              </span>
-            </div>
-            {c.titles.map((t, i) => (
-              <div key={i} className="litem" style={stripeVar(styles[c.cat])}>
-                <span className="bullet" style={{ color: t.deep ? 'var(--accent)' : 'var(--ink-faint)' }}>
-                  {t.deep ? '▲' : '•'}
-                </span>
-                <span className="txt">{t.title}</span>
-                {t.count > 1 && (
-                  <span className="text-[12px]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}>
-                    ×{t.count}
+              <div
+                className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3"
+                style={{ borderColor: 'var(--line-soft)' }}
+              >
+                <div className="flex items-baseline gap-2.5">
+                  <span className="text-[16px] font-semibold" style={{ fontFamily: 'var(--serif)' }}>
+                    {w.label}
+                  </span>
+                  <span className="text-[11px] uppercase tracking-[0.08em]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}>
+                    {i === 0 ? 'this week' : i === 1 ? 'last week' : `${i} weeks ago`}
+                  </span>
+                </div>
+                {!quiet && (
+                  <span className="text-[12px]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-soft)' }}>
+                    {w.acc.tasksDone > 0 && `${w.acc.tasksDone} tasks · `}
+                    {w.acc.deepSessions > 0 && `${w.acc.deepSessions} deep · `}
+                    {w.acc.totalBlocks} blocks
+                    {w.habitsDone > 0 && ` · ${w.habitsDone} habits`}
+                    {w.acc.migrated > 0 && ` · ${w.acc.migrated} carried`}
+                    {` · ${w.activeDays}/7 active`}
                   </span>
                 )}
               </div>
-            ))}
-          </div>
-        ))}
+
+              {quiet && <div className="hint">Quiet week — nothing logged.</div>}
+
+              {w.acc.byCat.map((c) => (
+                <div key={c.cat} className="litem items-start" style={stripeVar(styles[c.cat])}>
+                  <span className={`qname s-${c.cat}`} style={{ ...stripeVar(styles[c.cat]), minWidth: 150, flex: 'none' }}>
+                    <span className="dot" />
+                    {CATS[c.cat]}
+                  </span>
+                  <span className="txt" style={{ color: 'var(--ink-soft)' }}>
+                    {c.titles.map((t, j) => (
+                      <span key={j}>
+                        {j > 0 && ' · '}
+                        {t.deep && <span style={{ color: 'var(--accent)' }}>▲ </span>}
+                        {t.title}
+                        {t.count > 1 && ` ×${t.count}`}
+                      </span>
+                    ))}
+                  </span>
+                  <span className="text-[11px]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)', flex: 'none' }}>
+                    {fmtDur(c.mins)}
+                  </span>
+                </div>
+              ))}
+
+              {w.wins.length > 0 && (
+                <div className="litem items-start">
+                  <span className="text-[11px] uppercase tracking-[0.08em]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)', minWidth: 150, flex: 'none' }}>
+                    logged
+                  </span>
+                  <span className="txt" style={{ color: 'var(--ink-soft)' }}>
+                    {w.wins.map((e, j) => (
+                      <span key={e.id}>
+                        {j > 0 && ' · '}
+                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}>
+                          {e.kind === 'event' ? '○ ' : '✕ '}
+                        </span>
+                        {e.text}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
 
-      {wins.length > 0 && (
-        <>
-          <div className="subhead">Tasks &amp; events logged</div>
-          <div className="overflow-hidden rounded-xl border" style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
-            {wins.map((e) => (
-              <div key={e.id} className={'litem' + (e.kind === 'task' && e.state === 'done' ? ' done' : '')}>
-                <span className="bullet" style={{ fontFamily: 'var(--mono)' }}>
-                  {e.kind === 'event' ? '○' : '✕'}
-                </span>
-                <span className="txt">
-                  {e.signifier === 'priority' && <span style={{ color: 'var(--accent)', marginRight: 5 }}>✷</span>}
-                  {e.text}
-                </span>
-                <span
-                  className="text-[11px]"
-                  style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)', flex: 'none' }}
-                >
-                  {mdShort(e.onDate)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="subhead">Habits over the fortnight</div>
-      <table className="ptable">
-        <thead>
-          <tr>
-            <th>Habit</th>
-            <th>Done / target</th>
-            <th>Rate</th>
-            <th>Current streak</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rep.habits.length === 0 && (
-            <tr>
-              <td colSpan={4} style={{ color: 'var(--ink-faint)' }}>
-                No habits yet.
-              </td>
-            </tr>
-          )}
-          {rep.habits.map((r) => (
-            <tr key={r.habit.id}>
-              <td>
-                <span className={`qname s-${r.habit.cat}`} style={stripeVar(styles[r.habit.cat])}>
-                  <span className="dot" />
-                  {r.habit.name}
-                </span>
-              </td>
-              <td className="hrs">
-                {r.done} / {r.target}
-              </td>
-              <td className="hrs">{r.target ? Math.round((r.done / r.target) * 100) : 0}%</td>
-              <td className="hrs">{r.streak > 0 ? `🔥 ${r.streak}` : '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="hint px-0 mt-2">Weeks go back as far as your records — {md(new Date(earliest + 'T12:00:00'))} so far.</div>
     </div>
   )
 }
