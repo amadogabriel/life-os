@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
-import { catStyles, depthClass, DOW, dowMon, fmt, isoDate, resolve, streak, stripeVar, weekDates } from '../../lib/planner'
+import { catStyles, depthClass, dowMon, fmt, isoDate, resolve, streak, stripeVar } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from '../week/BlockModal'
 import { DayEditor } from '../week/DayEditor'
 
@@ -54,15 +54,6 @@ export function TodayView({ data, actions, today }: ViewProps) {
 
   const nowMin = today.getHours() * 60 + today.getMinutes()
   const nextUp = resolved.filter((r) => r.start + r.block.durMin > nowMin && !log[r.block.id])[0]
-
-  // Sprint work: open tasks from active sprints, planned into this week.
-  const week = weekDates(today)
-  const activeSprintIds = new Set(data.sprints.filter((s) => s.status === 'active').map((s) => s.id))
-  const sprintById = new Map(data.sprints.map((s) => [s.id, s]))
-  const projectById = new Map(data.projects.map((p) => [p.id, p]))
-  const sprintTasks = data.logEntries.filter(
-    (e) => e.kind === 'task' && e.state === 'open' && e.sprintId && activeSprintIds.has(e.sprintId),
-  )
 
   async function submitTodo() {
     const t = todoText.trim()
@@ -174,59 +165,6 @@ export function TodayView({ data, actions, today }: ViewProps) {
           )}
         </Card>
       </div>
-
-      {/* sprint work — plan active-sprint tasks into the week */}
-      {sprintTasks.length > 0 && (
-        <div className="mb-4">
-          <Card title="Sprint work — plan into your week">
-            {sprintTasks.map((e) => {
-              const wk = week.findIndex((d) => isoDate(d) === e.onDate)
-              const sp = e.sprintId ? sprintById.get(e.sprintId) : undefined
-              const pr = sp ? projectById.get(sp.projectId) : undefined
-              return (
-                <div key={e.id} className="litem flex-wrap" style={stripeVar(styles[e.cat])}>
-                  <span className="txt">
-                    {e.text}
-                    {(pr || sp) && (
-                      <span style={{ color: 'var(--ink-faint)', fontSize: 11, marginLeft: 6 }}>
-                        {pr?.name}
-                        {sp ? ` · ${sp.name}` : ''}
-                      </span>
-                    )}
-                  </span>
-                  <span className="flex gap-0.5">
-                    {DOW.map((d, i) => (
-                      <button
-                        key={i}
-                        className={'btn ghost sm' + (wk === i ? ' deep-on' : '')}
-                        style={{ minWidth: 26, padding: '3px 5px' }}
-                        title={`Schedule ${d}`}
-                        onClick={() => actions.updateLogEntry(e.id, { onDate: isoDate(week[i]) })}
-                      >
-                        {d[0]}
-                      </button>
-                    ))}
-                  </span>
-                  {wk >= 0 && !e.blockId && (
-                    <button className="btn ghost sm" title="Drop onto that day's timeline" onClick={() => actions.scheduleBlockFromEntry(e.id, wk)}>
-                      ▸ block
-                    </button>
-                  )}
-                  {e.blockId && (
-                    <span className="text-[11px]" style={{ color: 'var(--accent)' }}>
-                      ▸ blocked
-                    </span>
-                  )}
-                  <button className="chk" role="checkbox" aria-checked={false} title="Mark done" onClick={() => actions.updateLogEntry(e.id, { state: 'done' })}>
-                    <Check />
-                  </button>
-                </div>
-              )
-            })}
-            <div className="hint">Tap a day to schedule; ▸ block drops it onto that day's timeline.</div>
-          </Card>
-        </div>
-      )}
 
       {/* main: two-column plan + compact sidebar */}
       <div className="grid items-start gap-4 lg:grid-cols-[2fr_1fr] max-lg:grid-cols-1">

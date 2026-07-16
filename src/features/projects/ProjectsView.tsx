@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
+import { Check } from '../../components/Check'
 import {
   bullet,
   catStyles,
+  DOW,
   isoDate,
   stripeVar,
+  weekDates,
   type LogEntry,
   type Project,
   type ProjectStatus,
@@ -62,6 +65,15 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
   const inbox = data.logEntries
     .filter((e) => (e.kind === 'task' || e.kind === 'note') && e.state === 'open' && !e.projectId)
     .sort((a, b) => a.onDate.localeCompare(b.onDate))
+
+  // Sprint work: open tasks from active sprints, planned into the current week.
+  const week = weekDates(today)
+  const activeSprintIds = new Set(data.sprints.filter((s) => s.status === 'active').map((s) => s.id))
+  const sprintById = new Map(data.sprints.map((s) => [s.id, s]))
+  const projectById = new Map(data.projects.map((p) => [p.id, p]))
+  const sprintTasks = data.logEntries.filter(
+    (e) => e.kind === 'task' && e.state === 'open' && e.sprintId && activeSprintIds.has(e.sprintId),
+  )
 
   async function addProject() {
     const n = pName.trim()
@@ -211,6 +223,59 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
             </button>
           ))}
         </div>
+
+        {sprintTasks.length > 0 && (
+          <>
+            <div className="subhead">Sprint work — plan into your week</div>
+            <div className="overflow-hidden rounded-xl border" style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
+              {sprintTasks.map((e) => {
+                const wk = week.findIndex((d) => isoDate(d) === e.onDate)
+                const sp = e.sprintId ? sprintById.get(e.sprintId) : undefined
+                const pr = sp ? projectById.get(sp.projectId) : undefined
+                return (
+                  <div key={e.id} className="litem flex-wrap" style={stripeVar(styles[e.cat])}>
+                    <span className="txt">
+                      {e.text}
+                      {(pr || sp) && (
+                        <span style={{ color: 'var(--ink-faint)', fontSize: 11, marginLeft: 6 }}>
+                          {pr?.name}
+                          {sp ? ` · ${sp.name}` : ''}
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex gap-0.5">
+                      {DOW.map((d, i) => (
+                        <button
+                          key={i}
+                          className={'btn ghost sm' + (wk === i ? ' deep-on' : '')}
+                          style={{ minWidth: 26, padding: '3px 5px' }}
+                          title={`Schedule ${d}`}
+                          onClick={() => actions.updateLogEntry(e.id, { onDate: isoDate(week[i]) })}
+                        >
+                          {d[0]}
+                        </button>
+                      ))}
+                    </span>
+                    {wk >= 0 && !e.blockId && (
+                      <button className="btn ghost sm" title="Drop onto that day's timeline" onClick={() => actions.scheduleBlockFromEntry(e.id, wk)}>
+                        ▸ block
+                      </button>
+                    )}
+                    {e.blockId && (
+                      <span className="text-[11px]" style={{ color: 'var(--accent)' }}>
+                        ▸ blocked
+                      </span>
+                    )}
+                    <button className="chk" role="checkbox" aria-checked={false} title="Mark done" onClick={() => actions.updateLogEntry(e.id, { state: 'done' })}>
+                      <Check />
+                    </button>
+                  </div>
+                )
+              })}
+              <div className="hint">Tap a day to schedule; ▸ block drops it onto that day's timeline.</div>
+            </div>
+          </>
+        )}
 
         {inbox.length > 0 && (
           <>
