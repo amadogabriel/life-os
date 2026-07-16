@@ -2,7 +2,7 @@
 // layer, but the whole planner lives in localStorage. Active when no Supabase
 // env is configured — lets you run and click through the app with no project.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Block, Cat } from '../planner'
+import type { Block, BlockLogRow, Cat } from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -37,6 +37,8 @@ function buildDemoData(): PlannerData {
       })),
     ),
     blockLogs: {},
+    blockLogRows: [],
+    logEntries: [],
     habits: defaultHabits.map((h, position) => ({ id: nid(), position, ...h })),
     habitLogs: {},
     buckets: defaultBuckets.map((bk, position) => ({
@@ -55,16 +57,36 @@ function buildDemoData(): PlannerData {
   }
 }
 
+/** Frozen completed-block rows, derived from the check-off map + current blocks. */
+function deriveBlockLogRows(d: PlannerData): BlockLogRow[] {
+  const byId = new Map<string, Block>()
+  d.blocksByDow.flat().forEach((b) => byId.set(b.id, b))
+  const rows: BlockLogRow[] = []
+  for (const [dateIso, ids] of Object.entries(d.blockLogs)) {
+    for (const blockId of Object.keys(ids)) {
+      const b = byId.get(blockId)
+      if (b) rows.push({ blockId, dateIso, title: b.title, cat: b.cat, durMin: b.durMin, deep: b.deep })
+    }
+  }
+  return rows
+}
+
+/** Fill in derived fields so consumers always see a consistent snapshot. */
+function finalize(d: PlannerData): PlannerData {
+  return { ...d, blockLogRows: deriveBlockLogRows(d) }
+}
+
 function load(): PlannerData {
   try {
     const raw = localStorage.getItem(STORE_KEY)
     if (raw) {
       // hydrate fields added after the store was first written
       const d = JSON.parse(raw) as PlannerData
-      return {
+      return finalize({
         ...d,
         todos: d.todos ?? [],
         dumps: d.dumps ?? [],
+        logEntries: d.logEntries ?? [],
         buckets: (d.buckets ?? []).map((bk) => ({
           ...bk,
           color: bk.color ?? '',
@@ -73,7 +95,7 @@ function load(): PlannerData {
         blocksByDow: (d.blocksByDow ?? []).map((bs) =>
           bs.map((b) => ({ ...b, deep: b.deep ?? isDeepDefault(b.cat, b.title) })),
         ),
-      }
+      })
     }
   } catch {
     /* corrupted store — reseed */
@@ -90,7 +112,7 @@ export function useDemoPlanner() {
 export function useDemoActions(): PlannerActions {
   const qc = useQueryClient()
   const mutate = async (fn: (data: PlannerData) => PlannerData) => {
-    const next = fn(load())
+    const next = finalize(fn(load()))
     localStorage.setItem(STORE_KEY, JSON.stringify(next))
     qc.setQueryData(plannerKey, next)
   }
@@ -202,6 +224,33 @@ export function useDemoActions(): PlannerActions {
         dumps: [...d.dumps, { id: nid(), text, createdAt: new Date().toISOString() }],
       })),
     deleteDump: (id) => mutate((d) => ({ ...d, dumps: d.dumps.filter((x) => x.id !== id) })),
+
+    addLogEntry: (entry) =>
+      mutate((d) => {
+        const onDay = d.logEntries.filter((e) => e.onDate === entry.onDate)
+        const position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
+        return {
+          ...d,
+          logEntries: [
+            ...d.logEntries,
+            {
+              id: nid(),
+              onDate: entry.onDate,
+              kind: entry.kind,
+              state: 'open',
+              signifier: entry.signifier ?? '',
+              text: entry.text,
+              cat: entry.cat ?? 'open',
+              blockId: null,
+              migratedTo: null,
+              position,
+            },
+          ],
+        }
+      }),
+    updateLogEntry: (id, fields) =>
+      mutate((d) => ({ ...d, logEntries: d.logEntries.map((e) => (e.id === id ? { ...e, ...fields } : e)) })),
+    deleteLogEntry: (id) => mutate((d) => ({ ...d, logEntries: d.logEntries.filter((e) => e.id !== id) })),
 
     async addDesignItem(item, position) {
       const id = nid()

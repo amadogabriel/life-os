@@ -1,7 +1,3 @@
-// Generated from the live Supabase schema (mcp generate_typescript_types).
-// Regenerate after every migration, or with the CLI:
-//   supabase gen types typescript --linked > src/lib/database.types.ts
-
 export type Json =
   | string
   | number
@@ -21,17 +17,29 @@ export type Database = {
       block_logs: {
         Row: {
           block_id: string
+          cat: string
+          deep: boolean
           done_on: string
+          dur_min: number
+          title: string
           user_id: string
         }
         Insert: {
           block_id: string
+          cat?: string
+          deep?: boolean
           done_on: string
+          dur_min?: number
+          title?: string
           user_id: string
         }
         Update: {
           block_id?: string
+          cat?: string
+          deep?: boolean
           done_on?: string
+          dur_min?: number
+          title?: string
           user_id?: string
         }
         Relationships: [
@@ -275,6 +283,69 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      log_entries: {
+        Row: {
+          block_id: string | null
+          cat: string
+          created_at: string
+          id: string
+          kind: string
+          migrated_to: string | null
+          on_date: string
+          position: number
+          signifier: string
+          state: string
+          text: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          block_id?: string | null
+          cat?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          migrated_to?: string | null
+          on_date: string
+          position?: number
+          signifier?: string
+          state?: string
+          text: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          block_id?: string | null
+          cat?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          migrated_to?: string | null
+          on_date?: string
+          position?: number
+          signifier?: string
+          state?: string
+          text?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "log_entries_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "log_entries_migrated_to_fkey"
+            columns: ["migrated_to"]
+            isOneToOne: false
+            referencedRelation: "log_entries"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       planners: {
         Row: {

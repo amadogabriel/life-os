@@ -53,7 +53,12 @@ export function TodayView({ data, actions, today }: ViewProps) {
   const pct = doneable.length ? Math.round((done / doneable.length) * 100) : 0
 
   const todaysHabits = data.habits.filter((h) => h.days.includes(dow))
-  const openTodos = data.todos.filter((t) => !t.done)
+  // Todos & brain-dump are now bullet-journal log entries (shared with the Log tab).
+  const openTaskEntries = data.logEntries.filter((e) => e.kind === 'task' && e.state === 'open')
+  const todoEntries = data.logEntries.filter(
+    (e) => e.kind === 'task' && (e.state === 'open' || (e.state === 'done' && e.onDate === todayIso)),
+  )
+  const todayNotes = data.logEntries.filter((e) => e.kind === 'note' && e.onDate === todayIso)
   const deepMins = resolved.filter((r) => r.block.deep).reduce((x, r) => x + r.block.durMin, 0)
   const topStreaks = data.habits
     .map((h) => ({ h, s: streak(h, data.habitLogs, today) }))
@@ -87,14 +92,14 @@ export function TodayView({ data, actions, today }: ViewProps) {
     const t = todoText.trim()
     if (!t) return
     setTodoText('')
-    await actions.addTodo(t)
+    await actions.addLogEntry({ onDate: todayIso, kind: 'task', text: t })
   }
 
   async function submitDump() {
     const t = dumpText.trim()
     if (!t) return
     setDumpText('')
-    await actions.addDump(t)
+    await actions.addLogEntry({ onDate: todayIso, kind: 'note', text: t })
   }
 
   return (
@@ -168,7 +173,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
 
         <div className="flex flex-col gap-4">
           {/* todos */}
-          <Card title={`Todos${openTodos.length ? ` · ${openTodos.length} open` : ''}`}>
+          <Card title={`Todos${openTaskEntries.length ? ` · ${openTaskEntries.length} open` : ''}`}>
             <div className="flex gap-1.5 p-2.5">
               <input
                 type="text"
@@ -183,23 +188,26 @@ export function TodayView({ data, actions, today }: ViewProps) {
                 ＋
               </button>
             </div>
-            {data.todos.map((t) => (
-              <div key={t.id} className={'litem' + (t.done ? ' done' : '')}>
-                <button
-                  className="chk"
-                  role="checkbox"
-                  aria-checked={t.done}
-                  onClick={() => actions.toggleTodo(t.id, !t.done)}
-                >
-                  <Check />
-                </button>
-                <span className="txt">{t.text}</span>
-                <button className="x" title="Delete" onClick={() => actions.deleteTodo(t.id)}>
-                  ✕
-                </button>
-              </div>
-            ))}
-            {data.todos.length === 0 && <div className="hint">Nothing yet — capture the day's musts.</div>}
+            {todoEntries.map((t) => {
+              const done = t.state === 'done'
+              return (
+                <div key={t.id} className={'litem' + (done ? ' done' : '')}>
+                  <button
+                    className="chk"
+                    role="checkbox"
+                    aria-checked={done}
+                    onClick={() => actions.updateLogEntry(t.id, { state: done ? 'open' : 'done' })}
+                  >
+                    <Check />
+                  </button>
+                  <span className="txt">{t.text}</span>
+                  <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(t.id)}>
+                    ✕
+                  </button>
+                </div>
+              )
+            })}
+            {todoEntries.length === 0 && <div className="hint">Nothing yet — capture the day's musts.</div>}
           </Card>
 
           {/* habits */}
@@ -283,7 +291,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                 ▲ Deep work today: <b>{Math.round((deepMins / 60) * 10) / 10}h</b>
               </div>
               <div>
-                ✓ Plan done: <b>{pct}%</b> · Todos open: <b>{openTodos.length}</b>
+                ✓ Plan done: <b>{pct}%</b> · Todos open: <b>{openTaskEntries.length}</b>
               </div>
               {topStreaks.map(({ h, s }) => (
                 <div key={h.id}>
@@ -310,17 +318,17 @@ export function TodayView({ data, actions, today }: ViewProps) {
                 ＋
               </button>
             </div>
-            {data.dumps.map((d) => (
+            {todayNotes.map((d) => (
               <div key={d.id} className="litem">
-                <span className="bullet">•</span>
+                <span className="bullet">—</span>
                 <span className="txt">{d.text}</span>
-                <button className="x" title="Delete" onClick={() => actions.deleteDump(d.id)}>
+                <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(d.id)}>
                   ✕
                 </button>
               </div>
             ))}
             <div className="hint">
-              Unsorted inbox — ask Claude Code to organize these into tasks or memos later.
+              Today's notes — captured to your Log. Ask Claude Code to organize these into tasks or memos later.
             </div>
           </Card>
         </div>

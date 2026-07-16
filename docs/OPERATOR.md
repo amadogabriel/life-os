@@ -45,8 +45,8 @@ select user_id from profiles limit 1;
   its stored `start_min` is ignored except for the first block. Blocks never
   overlap.
 - **Deep work**: `deep = true` on a block/task renders it saturated in the UI;
-  shallow is muted. Deep is per block/task, *not* per bucket ("Engineering
-  deep block" is deep; "Meetings" in the same Work bucket is not).
+  shallow is muted. Deep is per block/task, *not* per bucket ("Math —
+  focused hour" is deep; "Life OS" in the same Math bucket is not).
 - **Categories** (`cat` text): `work`, `devops`, `thesis`, `math`, `chin`
   (Chinese), `exercise`, `wqu`, `life`, `open` (= unassigned placeholder).
   Colors come from the bucket with that cat (`buckets.color`, '' = default

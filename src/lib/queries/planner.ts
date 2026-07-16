@@ -1,7 +1,18 @@
 // All data access lives here — UI components never touch supabase directly.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase'
-import type { Block, Cat, Day, Habit, LogMap } from '../planner'
+import type {
+  Block,
+  BlockLogRow,
+  Cat,
+  Day,
+  Habit,
+  LogEntry,
+  LogKind,
+  LogMap,
+  LogSignifier,
+  LogState,
+} from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -52,6 +63,8 @@ export interface PlannerData {
   days: Day[] // index = dow (0 = Monday)
   blocksByDow: Block[][] // index = dow, sorted by position
   blockLogs: LogMap
+  blockLogRows: BlockLogRow[] // frozen snapshots of completed blocks, for the record
+  logEntries: LogEntry[] // bullet-journal entries, sorted by (on_date, position)
   habits: Habit[]
   habitLogs: LogMap
   buckets: Bucket[]
@@ -139,7 +152,7 @@ async function seedDefaults(userId: string): Promise<void> {
 }
 
 async function fetchPlanner(userId: string): Promise<PlannerData> {
-  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, profile] =
+  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, profile] =
     await Promise.all([
       supabase.from('days').select('*').order('dow'),
       supabase.from('blocks').select('*').order('dow').order('position'),
@@ -151,9 +164,10 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       supabase.from('design_items').select('*').order('position'),
       supabase.from('todos').select('*').order('position'),
       supabase.from('dump_items').select('*').order('created_at'),
+      supabase.from('log_entries').select('*').order('on_date').order('position'),
       supabase.from('profiles').select('*').maybeSingle(),
     ])
-  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, profile]
+  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, profile]
   for (const r of results) if (r.error) throw r.error
 
   if (!days.data || days.data.length === 0) {
@@ -189,6 +203,26 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     days: days.data.map((d) => ({ dow: d.dow, name: d.name, loc: d.loc })),
     blocksByDow,
     blockLogs: toLogMap(blockLogs.data!, 'block_id'),
+    blockLogRows: blockLogs.data!.map((r) => ({
+      blockId: r.block_id,
+      dateIso: r.done_on,
+      title: r.title,
+      cat: r.cat as Cat,
+      durMin: r.dur_min,
+      deep: r.deep,
+    })),
+    logEntries: logEntries.data!.map((e) => ({
+      id: e.id,
+      onDate: e.on_date,
+      kind: e.kind as LogKind,
+      state: e.state as LogState,
+      signifier: e.signifier as LogSignifier,
+      text: e.text,
+      cat: e.cat as Cat,
+      blockId: e.block_id,
+      migratedTo: e.migrated_to,
+      position: e.position,
+    })),
     habits: habits.data!.map((h) => ({
       id: h.id,
       name: h.name,
@@ -256,6 +290,12 @@ export interface PlannerActions {
   deleteTodo(id: string): Promise<void>
   addDump(text: string): Promise<void>
   deleteDump(id: string): Promise<void>
+  addLogEntry(entry: { onDate: string; kind: LogKind; text: string; cat?: Cat; signifier?: LogSignifier }): Promise<void>
+  updateLogEntry(
+    id: string,
+    fields: Partial<Pick<LogEntry, 'text' | 'kind' | 'state' | 'signifier' | 'cat' | 'onDate' | 'position' | 'migratedTo'>>,
+  ): Promise<void>
+  deleteLogEntry(id: string): Promise<void>
   addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<string>
   updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
   swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
@@ -295,8 +335,19 @@ export function usePlannerActions(userId: string): PlannerActions {
   return {
     async toggleBlockLog(blockId: string, dateIso: string) {
       const on = patchLog('blockLogs', blockId, dateIso)
+      // Freeze the block's current shape onto the log so the finished day
+      // stays a faithful record even if the template is edited later.
+      const blk = qc.getQueryData<PlannerData>(plannerKey)?.blocksByDow.flat().find((b) => b.id === blockId)
       const { error } = on
-        ? await supabase.from('block_logs').upsert({ user_id: userId, block_id: blockId, done_on: dateIso })
+        ? await supabase.from('block_logs').upsert({
+            user_id: userId,
+            block_id: blockId,
+            done_on: dateIso,
+            title: blk?.title ?? '',
+            cat: blk?.cat ?? '',
+            dur_min: blk?.durMin ?? 0,
+            deep: blk?.deep ?? false,
+          })
         : await supabase.from('block_logs').delete().eq('block_id', blockId).eq('done_on', dateIso)
       if (error) invalidate()
     },
@@ -508,6 +559,53 @@ export function usePlannerActions(userId: string): PlannerActions {
     async deleteDump(id: string) {
       patch((data) => ({ ...data, dumps: data.dumps.filter((d) => d.id !== id) }))
       const { error } = await supabase.from('dump_items').delete().eq('id', id)
+      if (error) invalidate()
+    },
+
+    async addLogEntry(entry) {
+      // Append after the last entry already on that day.
+      const onDay = (qc.getQueryData<PlannerData>(plannerKey)?.logEntries ?? []).filter(
+        (e) => e.onDate === entry.onDate,
+      )
+      const position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
+      const { error } = await supabase.from('log_entries').insert({
+        user_id: userId,
+        on_date: entry.onDate,
+        kind: entry.kind,
+        text: entry.text,
+        cat: entry.cat ?? 'open',
+        signifier: entry.signifier ?? '',
+        position,
+      })
+      if (error) throw error
+      await invalidate()
+    },
+
+    async updateLogEntry(id, fields) {
+      patch((data) => ({
+        ...data,
+        logEntries: data.logEntries.map((e) => (e.id === id ? { ...e, ...fields } : e)),
+      }))
+      const { error } = await supabase
+        .from('log_entries')
+        .update({
+          ...(fields.text !== undefined && { text: fields.text }),
+          ...(fields.kind !== undefined && { kind: fields.kind }),
+          ...(fields.state !== undefined && { state: fields.state }),
+          ...(fields.signifier !== undefined && { signifier: fields.signifier }),
+          ...(fields.cat !== undefined && { cat: fields.cat }),
+          ...(fields.onDate !== undefined && { on_date: fields.onDate }),
+          ...(fields.position !== undefined && { position: fields.position }),
+          ...(fields.migratedTo !== undefined && { migrated_to: fields.migratedTo }),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+      if (error) invalidate()
+    },
+
+    async deleteLogEntry(id) {
+      patch((data) => ({ ...data, logEntries: data.logEntries.filter((e) => e.id !== id) }))
+      const { error } = await supabase.from('log_entries').delete().eq('id', id)
       if (error) invalidate()
     },
 

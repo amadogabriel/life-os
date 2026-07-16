@@ -59,6 +59,68 @@ export interface Habit {
 /** logs[dateISO] is the set of block/habit ids checked off that day. */
 export type LogMap = Record<string, Record<string, true>>
 
+// ---------- bullet-journal log entries ----------
+
+export type LogKind = 'task' | 'event' | 'note'
+export type LogState = 'open' | 'done' | 'migrated' | 'scheduled' | 'dropped'
+export type LogSignifier = '' | 'priority' | 'inspiration'
+
+/** A single rapid-logged item on a given (local) day — the permanent record. */
+export interface LogEntry {
+  id: string
+  onDate: string // ISO local date (YYYY-MM-DD)
+  kind: LogKind
+  state: LogState
+  signifier: LogSignifier
+  text: string
+  cat: Cat
+  blockId: string | null
+  migratedTo: string | null
+  position: number
+}
+
+/** A completed block, frozen as it was at check-off time (block_logs snapshot). */
+export interface BlockLogRow {
+  blockId: string
+  dateIso: string
+  title: string
+  cat: Cat
+  durMin: number
+  deep: boolean
+}
+
+/** Ryder-Carroll bullet for an entry, factoring in kind + state. */
+export function bullet(kind: LogKind, state: LogState): string {
+  if (kind === 'note') return '—'
+  if (kind === 'event') return '○'
+  switch (state) {
+    case 'done':
+      return '✕'
+    case 'migrated':
+      return '›'
+    case 'scheduled':
+      return '‹'
+    case 'dropped':
+      return '•'
+    default:
+      return '•'
+  }
+}
+
+export const SIGNIFIER_GLYPH: Record<LogSignifier, string> = {
+  '': '',
+  priority: '✷',
+  inspiration: '!',
+}
+
+/** Tap-cycle for a task bullet: open → done → dropped → open. Notes/events don't cycle. */
+export function nextState(kind: LogKind, state: LogState): LogState {
+  if (kind !== 'task') return state
+  if (state === 'open') return 'done'
+  if (state === 'done') return 'dropped'
+  return 'open'
+}
+
 // ---------- category styling ----------
 
 export interface CatStyle {
