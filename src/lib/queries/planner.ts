@@ -744,33 +744,40 @@ export function usePlannerActions(userId: string): PlannerActions {
       await invalidate()
     },
     async scheduleBlockFromEntry(entryId, dow) {
-      const data = qc.getQueryData<PlannerData>(plannerKey)
-      const e = data?.logEntries.find((x) => x.id === entryId)
+      const cache = qc.getQueryData<PlannerData>(plannerKey)
+      const e = cache?.logEntries.find((x) => x.id === entryId)
       if (!e) return
-      const position = data?.blocksByDow[dow]?.length ?? 0
-      const { data: blk, error } = await supabase
-        .from('blocks')
-        .insert({
-          user_id: userId,
-          dow,
-          position,
-          cat: e.cat === 'open' ? 'work' : e.cat,
-          title: e.text,
-          detail: '',
-          start_min: 720,
-          dur_min: 60,
-          anchored: false,
-          deep: false,
-        })
-        .select('id')
-        .single()
-      if (error) throw error
-      const { error: uErr } = await supabase
-        .from('log_entries')
-        .update({ block_id: blk.id, updated_at: new Date().toISOString() })
-        .eq('id', entryId)
-      if (uErr) throw uErr
-      await invalidate()
+      // Optimistic: client-side id lets us patch immediately and skip the
+      // read-back + full refetch, so the button feels instant.
+      const id = crypto.randomUUID()
+      const cat = e.cat === 'open' ? 'work' : e.cat
+      const position = cache?.blocksByDow[dow]?.length ?? 0
+      patch((d) => ({
+        ...d,
+        blocksByDow: d.blocksByDow.map((bs, i) =>
+          i === dow
+            ? [...bs, { id, dow, position, cat, title: e.text, detail: '', startMin: 720, durMin: 60, anchored: false, deep: false }]
+            : bs,
+        ),
+        logEntries: d.logEntries.map((x) => (x.id === entryId ? { ...x, blockId: id } : x)),
+      }))
+      const r1 = await supabase.from('blocks').insert({
+        id,
+        user_id: userId,
+        dow,
+        position,
+        cat,
+        title: e.text,
+        detail: '',
+        start_min: 720,
+        dur_min: 60,
+        anchored: false,
+        deep: false,
+      })
+      const r2 = r1.error
+        ? { error: r1.error }
+        : await supabase.from('log_entries').update({ block_id: id, updated_at: new Date().toISOString() }).eq('id', entryId)
+      if (r1.error || r2.error) invalidate()
     },
 
     async addDesignItem(item: { name: string; cat: Cat }, position: number) {
