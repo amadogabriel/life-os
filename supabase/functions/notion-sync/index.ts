@@ -15,8 +15,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 const NOTION_TOKEN = Deno.env.get("NOTION_TOKEN") ?? ""
 const SYNC_KEY = Deno.env.get("SYNC_KEY") ?? ""
-const JOURNAL_DB = Deno.env.get("NOTION_JOURNAL_DB") ?? "ef726f8f0b3048ccb5e6ef152091b308"
-const KB_DB = Deno.env.get("NOTION_KB_DB") ?? "4f841d4287124ab28eeef2b265164eb5"
+const JOURNAL_DB = Deno.env.get("NOTION_JOURNAL_DB") ?? "9a6e9dc1dbfe4d53a378b8ecd74cb7cf"
+const KB_DB = Deno.env.get("NOTION_KB_DB") ?? "c10bb0bb8d05493fb0611c0802e9d113"
 const NOTION = "https://api.notion.com/v1"
 const NV = "2022-06-28"
 

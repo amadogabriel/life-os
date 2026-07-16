@@ -294,7 +294,9 @@ export type Database = {
           migrated_to: string | null
           on_date: string
           position: number
+          project_id: string | null
           signifier: string
+          sprint_id: string | null
           state: string
           text: string
           updated_at: string
@@ -309,7 +311,9 @@ export type Database = {
           migrated_to?: string | null
           on_date: string
           position?: number
+          project_id?: string | null
           signifier?: string
+          sprint_id?: string | null
           state?: string
           text: string
           updated_at?: string
@@ -324,7 +328,9 @@ export type Database = {
           migrated_to?: string | null
           on_date?: string
           position?: number
+          project_id?: string | null
           signifier?: string
+          sprint_id?: string | null
           state?: string
           text?: string
           updated_at?: string
@@ -343,6 +349,20 @@ export type Database = {
             columns: ["migrated_to"]
             isOneToOne: false
             referencedRelation: "log_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "log_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "log_entries_sprint_id_fkey"
+            columns: ["sprint_id"]
+            isOneToOne: false
+            referencedRelation: "sprints"
             referencedColumns: ["id"]
           },
         ]
@@ -382,6 +402,86 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      projects: {
+        Row: {
+          created_at: string
+          goal: string
+          id: string
+          name: string
+          position: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          goal?: string
+          id?: string
+          name: string
+          position?: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          goal?: string
+          id?: string
+          name?: string
+          position?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      sprints: {
+        Row: {
+          created_at: string
+          end_date: string | null
+          goal: string
+          id: string
+          name: string
+          position: number
+          project_id: string
+          start_date: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          end_date?: string | null
+          goal?: string
+          id?: string
+          name: string
+          position?: number
+          project_id: string
+          start_date?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          end_date?: string | null
+          goal?: string
+          id?: string
+          name?: string
+          position?: number
+          project_id?: string
+          start_date?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sprints_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       todos: {
         Row: {

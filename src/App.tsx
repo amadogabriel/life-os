@@ -6,13 +6,14 @@ import { useDemoActions, useDemoPlanner } from './lib/queries/demo'
 import { SignIn } from './features/auth/SignIn'
 import { TodayView } from './features/today/TodayView'
 import { LogView } from './features/log/LogView'
+import { ProjectsView } from './features/projects/ProjectsView'
 import { WeekView } from './features/week/WeekView'
 import { HabitsView } from './features/habits/HabitsView'
 import { StatsView } from './features/stats/StatsView'
 import { ReportView } from './features/report/ReportView'
 import { AccountView } from './features/account/AccountView'
 
-const TABS = ['Today', 'Log', 'Week', 'Habits', 'Stats', 'Report', 'Account'] as const
+const TABS = ['Today', 'Log', 'Projects', 'Week', 'Habits', 'Stats', 'Report', 'Account'] as const
 type Tab = (typeof TABS)[number]
 
 export interface ViewProps {
@@ -110,6 +111,7 @@ function PlannerShell({
       <main className="pt-[26px]">
         {tab === 'Today' && <TodayView {...viewProps} />}
         {tab === 'Log' && <LogView {...viewProps} />}
+        {tab === 'Projects' && <ProjectsView {...viewProps} />}
         {tab === 'Week' && <WeekView {...viewProps} />}
         {tab === 'Habits' && <HabitsView {...viewProps} />}
         {tab === 'Stats' && <StatsView {...viewProps} />}

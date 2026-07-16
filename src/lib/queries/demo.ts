@@ -39,6 +39,8 @@ function buildDemoData(): PlannerData {
     blockLogs: {},
     blockLogRows: [],
     logEntries: [],
+    projects: [],
+    sprints: [],
     habits: defaultHabits.map((h, position) => ({ id: nid(), position, ...h })),
     habitLogs: {},
     buckets: defaultBuckets.map((bk, position) => ({
@@ -87,6 +89,8 @@ function load(): PlannerData {
         todos: d.todos ?? [],
         dumps: d.dumps ?? [],
         logEntries: d.logEntries ?? [],
+        projects: d.projects ?? [],
+        sprints: d.sprints ?? [],
         buckets: (d.buckets ?? []).map((bk) => ({
           ...bk,
           color: bk.color ?? '',
@@ -243,6 +247,8 @@ export function useDemoActions(): PlannerActions {
               cat: entry.cat ?? 'open',
               blockId: null,
               migratedTo: null,
+              projectId: null,
+              sprintId: null,
               position,
             },
           ],
@@ -277,11 +283,50 @@ export function useDemoActions(): PlannerActions {
               cat: src.cat,
               blockId: null,
               migratedTo: null,
+              projectId: null,
+              sprintId: null,
               position,
             },
           ],
         }
       }),
+
+    async addProject(name) {
+      const id = nid()
+      await mutate((d) => ({
+        ...d,
+        projects: [...d.projects, { id, name, goal: '', status: 'planning', position: d.projects.length }],
+      }))
+      return id
+    },
+    updateProject: (id, fields) =>
+      mutate((d) => ({ ...d, projects: d.projects.map((p) => (p.id === id ? { ...p, ...fields } : p)) })),
+    deleteProject: (id) =>
+      mutate((d) => ({
+        ...d,
+        projects: d.projects.filter((p) => p.id !== id),
+        sprints: d.sprints.filter((s) => s.projectId !== id),
+        logEntries: d.logEntries.map((e) => (e.projectId === id ? { ...e, projectId: null, sprintId: null } : e)),
+      })),
+    async addSprint(projectId, name) {
+      const id = nid()
+      await mutate((d) => ({
+        ...d,
+        sprints: [
+          ...d.sprints,
+          { id, projectId, name, goal: '', status: 'planning', startDate: null, endDate: null, position: d.sprints.filter((s) => s.projectId === projectId).length },
+        ],
+      }))
+      return id
+    },
+    updateSprint: (id, fields) =>
+      mutate((d) => ({ ...d, sprints: d.sprints.map((s) => (s.id === id ? { ...s, ...fields } : s)) })),
+    deleteSprint: (id) =>
+      mutate((d) => ({
+        ...d,
+        sprints: d.sprints.filter((s) => s.id !== id),
+        logEntries: d.logEntries.map((e) => (e.sprintId === id ? { ...e, sprintId: null } : e)),
+      })),
 
     async addDesignItem(item, position) {
       const id = nid()

@@ -210,13 +210,14 @@ group by cat order by blocks desc;
 ### Notion — knowledge base + journal
 
 Notion holds the **reference layer** (there's no app-side integration — Claude
-mirrors via the Notion MCP). Structure, in workspace **Jul Jon's Notion**:
+mirrors via the Notion MCP, or the `notion-sync` edge function). Structure, in
+workspace **Jul Jon General's Space**:
 
-- **Life OS** home page — `39ff737c-2ef4-81d2-8c1b-c27d181de20b`
-  - **Knowledge Base** data source — `collection://5cc15ad0-0504-4a0a-8753-bb854b5f5394`
-    (props: `Name`, `Category`, `Source`, `Status`, `Captured`)
-  - **Journal** data source — `collection://bf493db5-c2be-4157-907f-caa2597f4125`
-    (props: `Name`, `Day`, `Tasks done`, `Deep sessions`, `Blocks`, `Habits`)
+- **Life OS** home page — `39f078c7-026e-816b-8c2e-e65b8182dee1`
+  - **Knowledge Base** — data source `collection://9f2dc71d-680c-45eb-9908-e64ab457b99e`,
+    database id `c10bb0bb8d05493fb0611c0802e9d113` (props: `Name`, `Category`, `Source`, `Status`, `Captured`)
+  - **Journal** — data source `collection://73edbef5-e514-4991-b175-c7b1fde374b7`,
+    database id `9a6e9dc1dbfe4d53a378b8ecd74cb7cf` (props: `Name`, `Day`, `Tasks done`, `Deep sessions`, `Blocks`, `Habits`)
 
 **File a note into the KB** (reference/knowledge captured in a brain-dump):
 read open notes (`select id, text, on_date from log_entries where kind='note'

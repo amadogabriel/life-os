@@ -12,6 +12,10 @@ import type {
   LogMap,
   LogSignifier,
   LogState,
+  Project,
+  ProjectStatus,
+  Sprint,
+  SprintStatus,
 } from '../planner'
 import {
   DEFAULT_NOTES,
@@ -65,6 +69,8 @@ export interface PlannerData {
   blockLogs: LogMap
   blockLogRows: BlockLogRow[] // frozen snapshots of completed blocks, for the record
   logEntries: LogEntry[] // bullet-journal entries, sorted by (on_date, position)
+  projects: Project[]
+  sprints: Sprint[]
   habits: Habit[]
   habitLogs: LogMap
   buckets: Bucket[]
@@ -152,7 +158,7 @@ async function seedDefaults(userId: string): Promise<void> {
 }
 
 async function fetchPlanner(userId: string): Promise<PlannerData> {
-  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, profile] =
+  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile] =
     await Promise.all([
       supabase.from('days').select('*').order('dow'),
       supabase.from('blocks').select('*').order('dow').order('position'),
@@ -165,9 +171,11 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       supabase.from('todos').select('*').order('position'),
       supabase.from('dump_items').select('*').order('created_at'),
       supabase.from('log_entries').select('*').order('on_date').order('position'),
+      supabase.from('projects').select('*').order('position'),
+      supabase.from('sprints').select('*').order('position'),
       supabase.from('profiles').select('*').maybeSingle(),
     ])
-  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, profile]
+  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile]
   for (const r of results) if (r.error) throw r.error
 
   if (!days.data || days.data.length === 0) {
@@ -221,7 +229,26 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       cat: e.cat as Cat,
       blockId: e.block_id,
       migratedTo: e.migrated_to,
+      projectId: e.project_id,
+      sprintId: e.sprint_id,
       position: e.position,
+    })),
+    projects: projects.data!.map((p) => ({
+      id: p.id,
+      name: p.name,
+      goal: p.goal,
+      status: p.status as ProjectStatus,
+      position: p.position,
+    })),
+    sprints: sprints.data!.map((s) => ({
+      id: s.id,
+      projectId: s.project_id,
+      name: s.name,
+      goal: s.goal,
+      status: s.status as SprintStatus,
+      startDate: s.start_date,
+      endDate: s.end_date,
+      position: s.position,
     })),
     habits: habits.data!.map((h) => ({
       id: h.id,
@@ -293,12 +320,23 @@ export interface PlannerActions {
   addLogEntry(entry: { onDate: string; kind: LogKind; text: string; cat?: Cat; signifier?: LogSignifier }): Promise<void>
   updateLogEntry(
     id: string,
-    fields: Partial<Pick<LogEntry, 'text' | 'kind' | 'state' | 'signifier' | 'cat' | 'onDate' | 'position' | 'migratedTo'>>,
+    fields: Partial<
+      Pick<LogEntry, 'text' | 'kind' | 'state' | 'signifier' | 'cat' | 'onDate' | 'position' | 'migratedTo' | 'projectId' | 'sprintId'>
+    >,
   ): Promise<void>
   deleteLogEntry(id: string): Promise<void>
   /** Carry an open entry to `toDate`: create a fresh open copy there and mark
    *  the original migrated (or scheduled, when moving to a future day). */
   migrateLogEntry(id: string, toDate: string, asScheduled?: boolean): Promise<void>
+  addProject(name: string): Promise<string>
+  updateProject(id: string, fields: Partial<Pick<Project, 'name' | 'goal' | 'status'>>): Promise<void>
+  deleteProject(id: string): Promise<void>
+  addSprint(projectId: string, name: string): Promise<string>
+  updateSprint(
+    id: string,
+    fields: Partial<Pick<Sprint, 'name' | 'goal' | 'status' | 'startDate' | 'endDate'>>,
+  ): Promise<void>
+  deleteSprint(id: string): Promise<void>
   addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<string>
   updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
   swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
@@ -600,6 +638,8 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.onDate !== undefined && { on_date: fields.onDate }),
           ...(fields.position !== undefined && { position: fields.position }),
           ...(fields.migratedTo !== undefined && { migrated_to: fields.migratedTo }),
+          ...(fields.projectId !== undefined && { project_id: fields.projectId }),
+          ...(fields.sprintId !== undefined && { sprint_id: fields.sprintId }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -636,6 +676,59 @@ export function usePlannerActions(userId: string): PlannerActions {
         .update({ state: asScheduled ? 'scheduled' : 'migrated', migrated_to: data.id, updated_at: new Date().toISOString() })
         .eq('id', id)
       if (uErr) throw uErr
+      await invalidate()
+    },
+
+    async addProject(name: string) {
+      const position = (qc.getQueryData<PlannerData>(plannerKey)?.projects ?? []).reduce((m, p) => Math.max(m, p.position + 1), 0)
+      const { data, error } = await supabase.from('projects').insert({ user_id: userId, name, position }).select('id').single()
+      if (error) throw error
+      await invalidate()
+      return data.id
+    },
+    async updateProject(id, fields) {
+      patch((d) => ({ ...d, projects: d.projects.map((p) => (p.id === id ? { ...p, ...fields } : p)) }))
+      const { error } = await supabase
+        .from('projects')
+        .update({ ...fields, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) invalidate()
+    },
+    async deleteProject(id) {
+      const { error } = await supabase.from('projects').delete().eq('id', id)
+      if (error) throw error
+      await invalidate()
+    },
+    async addSprint(projectId, name) {
+      const position = (qc.getQueryData<PlannerData>(plannerKey)?.sprints ?? [])
+        .filter((s) => s.projectId === projectId)
+        .reduce((m, s) => Math.max(m, s.position + 1), 0)
+      const { data, error } = await supabase
+        .from('sprints')
+        .insert({ user_id: userId, project_id: projectId, name, position })
+        .select('id')
+        .single()
+      if (error) throw error
+      await invalidate()
+      return data.id
+    },
+    async updateSprint(id, fields) {
+      patch((d) => ({ ...d, sprints: d.sprints.map((s) => (s.id === id ? { ...s, ...fields } : s)) }))
+      const { error } = await supabase
+        .from('sprints')
+        .update({
+          ...(fields.name !== undefined && { name: fields.name }),
+          ...(fields.goal !== undefined && { goal: fields.goal }),
+          ...(fields.status !== undefined && { status: fields.status }),
+          ...(fields.startDate !== undefined && { start_date: fields.startDate }),
+          ...(fields.endDate !== undefined && { end_date: fields.endDate }),
+        })
+        .eq('id', id)
+      if (error) invalidate()
+    },
+    async deleteSprint(id) {
+      const { error } = await supabase.from('sprints').delete().eq('id', id)
+      if (error) throw error
       await invalidate()
     },
 

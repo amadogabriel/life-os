@@ -192,6 +192,8 @@ describe('windowAccomplishments', () => {
     cat: 'open',
     blockId: null,
     migratedTo: null,
+    projectId: null,
+    sprintId: null,
     position: 0,
     ...over,
   })

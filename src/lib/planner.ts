@@ -76,8 +76,37 @@ export interface LogEntry {
   cat: Cat
   blockId: string | null
   migratedTo: string | null
+  projectId: string | null
+  sprintId: string | null
   position: number
 }
+
+// ---------- projects & sprints ----------
+
+export type ProjectStatus = 'planning' | 'active' | 'done' | 'archived'
+export type SprintStatus = 'planning' | 'active' | 'done'
+
+export interface Project {
+  id: string
+  name: string
+  goal: string
+  status: ProjectStatus
+  position: number
+}
+
+export interface Sprint {
+  id: string
+  projectId: string
+  name: string
+  goal: string
+  status: SprintStatus
+  startDate: string | null
+  endDate: string | null
+  position: number
+}
+
+export const PROJECT_STATUSES: ProjectStatus[] = ['planning', 'active', 'done', 'archived']
+export const SPRINT_STATUSES: SprintStatus[] = ['planning', 'active', 'done']
 
 /** A completed block, frozen as it was at check-off time (block_logs snapshot). */
 export interface BlockLogRow {
