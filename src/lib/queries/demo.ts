@@ -327,6 +327,29 @@ export function useDemoActions(): PlannerActions {
         sprints: d.sprints.filter((s) => s.id !== id),
         logEntries: d.logEntries.map((e) => (e.sprintId === id ? { ...e, sprintId: null } : e)),
       })),
+    scheduleBlockFromEntry: (entryId, dow) =>
+      mutate((d) => {
+        const e = d.logEntries.find((x) => x.id === entryId)
+        if (!e) return d
+        const id = nid()
+        const block: Block = {
+          id,
+          dow,
+          position: d.blocksByDow[dow].length,
+          cat: e.cat === 'open' ? 'work' : e.cat,
+          title: e.text,
+          detail: '',
+          startMin: 720,
+          durMin: 60,
+          anchored: false,
+          deep: false,
+        }
+        return {
+          ...d,
+          blocksByDow: d.blocksByDow.map((bs, i) => (i === dow ? [...bs, block] : bs)),
+          logEntries: d.logEntries.map((x) => (x.id === entryId ? { ...x, blockId: id } : x)),
+        }
+      }),
 
     async addDesignItem(item, position) {
       const id = nid()

@@ -337,6 +337,8 @@ export interface PlannerActions {
     fields: Partial<Pick<Sprint, 'name' | 'goal' | 'status' | 'startDate' | 'endDate'>>,
   ): Promise<void>
   deleteSprint(id: string): Promise<void>
+  /** Time-box a log entry: create a block on `dow` from the entry and link it. */
+  scheduleBlockFromEntry(entryId: string, dow: number): Promise<void>
   addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<string>
   updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
   swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
@@ -729,6 +731,35 @@ export function usePlannerActions(userId: string): PlannerActions {
     async deleteSprint(id) {
       const { error } = await supabase.from('sprints').delete().eq('id', id)
       if (error) throw error
+      await invalidate()
+    },
+    async scheduleBlockFromEntry(entryId, dow) {
+      const data = qc.getQueryData<PlannerData>(plannerKey)
+      const e = data?.logEntries.find((x) => x.id === entryId)
+      if (!e) return
+      const position = data?.blocksByDow[dow]?.length ?? 0
+      const { data: blk, error } = await supabase
+        .from('blocks')
+        .insert({
+          user_id: userId,
+          dow,
+          position,
+          cat: e.cat === 'open' ? 'work' : e.cat,
+          title: e.text,
+          detail: '',
+          start_min: 720,
+          dur_min: 60,
+          anchored: false,
+          deep: false,
+        })
+        .select('id')
+        .single()
+      if (error) throw error
+      const { error: uErr } = await supabase
+        .from('log_entries')
+        .update({ block_id: blk.id, updated_at: new Date().toISOString() })
+        .eq('id', entryId)
+      if (uErr) throw uErr
       await invalidate()
     },
 
