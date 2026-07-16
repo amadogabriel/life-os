@@ -197,6 +197,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       durMin: b.dur_min,
       anchored: b.anchored,
       deep: b.deep ?? false,
+      habitId: b.habit_id ?? null,
     })
   }
 
@@ -297,7 +298,7 @@ export interface PlannerActions {
   addBlock(dow: number, position: number): Promise<string>
   updateBlock(
     id: string,
-    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep'>>,
+    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>,
   ): Promise<void>
   deleteBlock(id: string): Promise<void>
   swapBlocks(a: Block, b: Block): Promise<void>
@@ -400,7 +401,22 @@ export function usePlannerActions(userId: string): PlannerActions {
             deep: blk?.deep ?? false,
           })
         : await supabase.from('block_logs').delete().eq('block_id', blockId).eq('done_on', dateIso)
-      if (error) invalidate()
+      if (error) {
+        invalidate()
+        return
+      }
+      // Mirror a linked habit: checking the block logs the habit for the day,
+      // un-checking removes it (only when the habit isn't already in that state).
+      if (blk?.habitId) {
+        const habitOn = !!qc.getQueryData<PlannerData>(plannerKey)?.habitLogs[dateIso]?.[blk.habitId]
+        if (on !== habitOn) {
+          patchLog('habitLogs', blk.habitId, dateIso)
+          const { error: hErr } = on
+            ? await supabase.from('habit_logs').upsert({ user_id: userId, habit_id: blk.habitId, done_on: dateIso })
+            : await supabase.from('habit_logs').delete().eq('habit_id', blk.habitId).eq('done_on', dateIso)
+          if (hErr) invalidate()
+        }
+      }
     },
     async toggleHabitLog(habitId: string, dateIso: string) {
       const on = patchLog('habitLogs', habitId, dateIso)
@@ -431,7 +447,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       return data.id
     },
 
-    async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep'>>) {
+    async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>) {
       // Optimistic: rapid ± duration taps must see each other's result.
       patch((data) => ({
         ...data,
@@ -447,6 +463,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.durMin !== undefined && { dur_min: fields.durMin }),
           ...(fields.anchored !== undefined && { anchored: fields.anchored }),
           ...(fields.deep !== undefined && { deep: fields.deep }),
+          ...(fields.habitId !== undefined && { habit_id: fields.habitId }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -756,7 +773,7 @@ export function usePlannerActions(userId: string): PlannerActions {
         ...d,
         blocksByDow: d.blocksByDow.map((bs, i) =>
           i === dow
-            ? [...bs, { id, dow, position, cat, title: e.text, detail: '', startMin: 720, durMin: 60, anchored: false, deep: false }]
+            ? [...bs, { id, dow, position, cat, title: e.text, detail: '', startMin: 720, durMin: 60, anchored: false, deep: false, habitId: null }]
             : bs,
         ),
         logEntries: d.logEntries.map((x) => (x.id === entryId ? { ...x, blockId: id } : x)),

@@ -29,6 +29,7 @@ const b = (over: Partial<Block>): Block => ({
   startMin: 0,
   durMin: 60,
   anchored: false,
+  habitId: null,
   ...over,
 })
 

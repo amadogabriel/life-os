@@ -40,6 +40,7 @@ export interface Block {
   durMin: number
   anchored: boolean
   deep: boolean
+  habitId: string | null // when set, checking this block off logs the habit
 }
 
 export interface Day {

@@ -33,6 +33,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
   const log = data.blockLogs[todayIso] ?? {}
   const hlog = data.habitLogs[todayIso] ?? {}
   const styles = catStyles(data.buckets)
+  const habitById = new Map(data.habits.map((h) => [h.id, h]))
 
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [editing, setEditing] = useState<EditingBlock | null>(null)
@@ -200,7 +201,14 @@ export function TodayView({ data, actions, today }: ViewProps) {
                     onClick={() => setEditing({ dow, blockId: b.id })}
                     style={{ color: 'inherit' }}
                   >
-                    <div className="title">{b.title}</div>
+                    <div className="title">
+                      {b.title}
+                      {b.habitId && (
+                        <span title={`Logs habit: ${habitById.get(b.habitId)?.name ?? ''}`} style={{ marginLeft: 5, fontSize: 11 }}>
+                          🔥
+                        </span>
+                      )}
+                    </div>
                     {b.detail && <div className="desc">{b.detail}</div>}
                   </button>
                 </div>

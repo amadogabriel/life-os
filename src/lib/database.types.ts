@@ -60,6 +60,7 @@ export type Database = {
           detail: string
           dow: number
           dur_min: number
+          habit_id: string | null
           id: string
           position: number
           start_min: number
@@ -74,6 +75,7 @@ export type Database = {
           detail?: string
           dow: number
           dur_min: number
+          habit_id?: string | null
           id?: string
           position: number
           start_min?: number
@@ -88,6 +90,7 @@ export type Database = {
           detail?: string
           dow?: number
           dur_min?: number
+          habit_id?: string | null
           id?: string
           position?: number
           start_min?: number
@@ -95,7 +98,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "blocks_habit_id_fkey"
+            columns: ["habit_id"]
+            isOneToOne: false
+            referencedRelation: "habits"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       bucket_tasks: {
         Row: {

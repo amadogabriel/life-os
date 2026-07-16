@@ -35,6 +35,7 @@ export function BlockModal({
   const [dur, setDur] = useState(block?.durMin ?? 30)
   const [anchored, setAnchored] = useState(block?.anchored ?? false)
   const [deep, setDeep] = useState(block?.deep ?? false)
+  const [habitId, setHabitId] = useState(block?.habitId ?? '')
   const resolvedStart = index >= 0 ? resolve(blocks)[index].start : 0
   const [start, setStart] = useState(fmt(block?.anchored ? block.startMin : resolvedStart))
 
@@ -51,6 +52,7 @@ export function BlockModal({
       durMin: Math.max(5, dur || 30),
       anchored,
       deep,
+      habitId: habitId || null,
       ...(anchored && { startMin: parseTime(start) }),
     })
     onClose()
@@ -136,6 +138,17 @@ export function BlockModal({
         <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} /> ▲ Deep work
         (rendered saturated; shallow is muted)
       </label>
+      <div className="field">
+        <label>Linked habit — checking this block off logs it 🔥</label>
+        <select value={habitId} onChange={(e) => setHabitId(e.target.value)}>
+          <option value="">None</option>
+          {data.habits.map((h) => (
+            <option key={h.id} value={h.id}>
+              {h.name}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="mt-[18px] flex items-center gap-2">
         <button className="btn danger ghost" onClick={remove}>
           Delete

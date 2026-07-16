@@ -34,6 +34,7 @@ function buildDemoData(): PlannerData {
         durMin: b.durMin,
         anchored: b.anchored,
         deep: isDeepDefault(b.cat, b.title),
+        habitId: null,
       })),
     ),
     blockLogs: {},
@@ -97,7 +98,7 @@ function load(): PlannerData {
           tasks: bk.tasks.map((t) => ({ ...t, deep: t.deep ?? isDeepDefault(bk.cat, t.name) })),
         })),
         blocksByDow: (d.blocksByDow ?? []).map((bs) =>
-          bs.map((b) => ({ ...b, deep: b.deep ?? isDeepDefault(b.cat, b.title) })),
+          bs.map((b) => ({ ...b, deep: b.deep ?? isDeepDefault(b.cat, b.title), habitId: b.habitId ?? null })),
         ),
       })
     }
@@ -137,7 +138,25 @@ export function useDemoActions(): PlannerActions {
   const findDow = (d: PlannerData, id: string) => d.blocksByDow.findIndex((bs) => bs.some((b) => b.id === id))
 
   return {
-    toggleBlockLog: (id, dateIso) => toggle('blockLogs', id, dateIso),
+    toggleBlockLog: (id, dateIso) =>
+      mutate((d) => {
+        const blockLogs = { ...d.blockLogs }
+        const day = { ...(blockLogs[dateIso] ?? {}) }
+        const on = !day[id]
+        if (on) day[id] = true
+        else delete day[id]
+        blockLogs[dateIso] = day
+        // Mirror a linked habit's log in the same direction.
+        const blk = d.blocksByDow.flat().find((b) => b.id === id)
+        let habitLogs = d.habitLogs
+        if (blk?.habitId) {
+          const hday = { ...(habitLogs[dateIso] ?? {}) }
+          if (on) hday[blk.habitId] = true
+          else delete hday[blk.habitId]
+          habitLogs = { ...habitLogs, [dateIso]: hday }
+        }
+        return { ...d, blockLogs, habitLogs }
+      }),
     toggleHabitLog: (id, dateIso) => toggle('habitLogs', id, dateIso),
 
     async addBlock(dow, position) {
@@ -145,7 +164,7 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) =>
         mapDow(d, dow, (blocks) => [
           ...blocks,
-          { id, dow, position, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false },
+          { id, dow, position, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null },
         ]),
       )
       return id
@@ -343,6 +362,7 @@ export function useDemoActions(): PlannerActions {
           durMin: 60,
           anchored: false,
           deep: false,
+          habitId: null,
         }
         return {
           ...d,
@@ -398,6 +418,7 @@ export function useDemoActions(): PlannerActions {
             durMin: it.mins,
             anchored: position === 0,
             deep: false,
+            habitId: null,
           }
           cur += it.mins
           return b
