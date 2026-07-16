@@ -1,16 +1,7 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
-import {
-  catStyles,
-  depthClass,
-  dowMon,
-  fmt,
-  isoDate,
-  resolve,
-  streak,
-  stripeVar,
-} from '../../lib/planner'
+import { catStyles, depthClass, dowMon, fmt, isoDate, resolve, streak, stripeVar } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from '../week/BlockModal'
 import { DayEditor } from '../week/DayEditor'
 
@@ -53,40 +44,16 @@ export function TodayView({ data, actions, today }: ViewProps) {
   const pct = doneable.length ? Math.round((done / doneable.length) * 100) : 0
 
   const todaysHabits = data.habits.filter((h) => h.days.includes(dow))
-  // Todos & brain-dump are now bullet-journal log entries (shared with the Log tab).
+  // Todos & brain-dump are bullet-journal log entries (shared with the Log tab).
   const openTaskEntries = data.logEntries.filter((e) => e.kind === 'task' && e.state === 'open')
   const todoEntries = data.logEntries.filter(
     (e) => e.kind === 'task' && (e.state === 'open' || (e.state === 'done' && e.onDate === todayIso)),
   )
   const todayNotes = data.logEntries.filter((e) => e.kind === 'note' && e.onDate === todayIso)
   const deepMins = resolved.filter((r) => r.block.deep).reduce((x, r) => x + r.block.durMin, 0)
-  const topStreaks = data.habits
-    .map((h) => ({ h, s: streak(h, data.habitLogs, today) }))
-    .filter((x) => x.s > 0)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, 3)
+
   const nowMin = today.getHours() * 60 + today.getMinutes()
-  const upcomingToday = resolved.filter((r) => r.start + r.block.durMin > nowMin && !log[r.block.id])
-  const nextUp = upcomingToday[0]
-  const tomorrowDow = (dow + 1) % 7
-  const upcoming: { key: string; when: string; title: string; deep: boolean; cat: string }[] = [
-    ...upcomingToday.map((r) => ({
-      key: r.block.id,
-      when: fmt(r.start),
-      title: r.block.title,
-      deep: r.block.deep,
-      cat: r.block.cat,
-    })),
-    ...resolve(data.blocksByDow[tomorrowDow])
-      .slice(0, Math.max(0, 6 - upcomingToday.length))
-      .map((r) => ({
-        key: 'tm-' + r.block.id,
-        when: `${data.days[tomorrowDow].name.slice(0, 3)} ${fmt(r.start)}`,
-        title: r.block.title,
-        deep: r.block.deep,
-        cat: r.block.cat,
-      })),
-  ].slice(0, 6)
+  const nextUp = resolved.filter((r) => r.start + r.block.durMin > nowMin && !log[r.block.id])[0]
 
   async function submitTodo() {
     const t = todoText.trim()
@@ -130,8 +97,77 @@ export function TodayView({ data, actions, today }: ViewProps) {
         )}
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-[1.25fr_1fr_1fr] max-lg:grid-cols-1">
-        {/* schedule */}
+      {/* top row: capture — todos + brain dump */}
+      <div className="mb-4 grid gap-4 md:grid-cols-2">
+        <Card title={`Todos${openTaskEntries.length ? ` · ${openTaskEntries.length} open` : ''}`}>
+          <div className="flex gap-1.5 p-2.5">
+            <input
+              type="text"
+              className="qi flex-1"
+              placeholder="Add a todo…"
+              maxLength={200}
+              value={todoText}
+              onChange={(e) => setTodoText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitTodo()}
+            />
+            <button className="btn ghost sm" onClick={submitTodo}>
+              ＋
+            </button>
+          </div>
+          {todoEntries.map((t) => {
+            const isDone = t.state === 'done'
+            return (
+              <div key={t.id} className={'litem' + (isDone ? ' done' : '')}>
+                <button
+                  className="chk"
+                  role="checkbox"
+                  aria-checked={isDone}
+                  onClick={() => actions.updateLogEntry(t.id, { state: isDone ? 'open' : 'done' })}
+                >
+                  <Check />
+                </button>
+                <span className="txt">{t.text}</span>
+                <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(t.id)}>
+                  ✕
+                </button>
+              </div>
+            )
+          })}
+          {todoEntries.length === 0 && <div className="hint">Nothing yet — capture the day's musts.</div>}
+        </Card>
+
+        <Card title="Brain dump">
+          <div className="flex gap-1.5 p-2.5">
+            <input
+              type="text"
+              className="qi flex-1"
+              placeholder="Park a thought…"
+              maxLength={500}
+              value={dumpText}
+              onChange={(e) => setDumpText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitDump()}
+            />
+            <button className="btn ghost sm" onClick={submitDump}>
+              ＋
+            </button>
+          </div>
+          {todayNotes.map((d) => (
+            <div key={d.id} className="litem">
+              <span className="bullet">—</span>
+              <span className="txt">{d.text}</span>
+              <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(d.id)}>
+                ✕
+              </button>
+            </div>
+          ))}
+          {todayNotes.length === 0 && (
+            <div className="hint">Today's notes land here and in your Log.</div>
+          )}
+        </Card>
+      </div>
+
+      {/* main: two-column plan + compact sidebar */}
+      <div className="grid items-start gap-4 lg:grid-cols-[2fr_1fr] max-lg:grid-cols-1">
         <Card
           title="Today's plan"
           action={
@@ -140,76 +176,40 @@ export function TodayView({ data, actions, today }: ViewProps) {
             </button>
           }
         >
-          {resolved.map(({ block: b, start }) => {
-            const checked = !!log[b.id]
-            return (
-              <div
-                key={b.id}
-                className={`citem s-${b.cat}${depthClass(b.deep)}${checked ? ' done' : ''}`}
-                style={stripeVar(styles[b.cat])}
-              >
-                <button
-                  className="chk"
-                  role="checkbox"
-                  aria-checked={checked}
-                  onClick={() => actions.toggleBlockLog(b.id, todayIso)}
-                >
-                  <Check />
-                </button>
-                <div className="time">{fmt(start)}</div>
-                <button
-                  className="cursor-pointer border-0 bg-transparent p-0 text-left"
-                  title="Edit block"
-                  onClick={() => setEditing({ dow, blockId: b.id })}
-                  style={{ color: 'inherit' }}
-                >
-                  <div className="title">{b.title}</div>
-                  {b.detail && <div className="desc">{b.detail}</div>}
-                </button>
-              </div>
-            )
-          })}
-        </Card>
-
-        <div className="flex flex-col gap-4">
-          {/* todos */}
-          <Card title={`Todos${openTaskEntries.length ? ` · ${openTaskEntries.length} open` : ''}`}>
-            <div className="flex gap-1.5 p-2.5">
-              <input
-                type="text"
-                className="qi flex-1"
-                placeholder="Add a todo…"
-                maxLength={200}
-                value={todoText}
-                onChange={(e) => setTodoText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submitTodo()}
-              />
-              <button className="btn ghost sm" onClick={submitTodo}>
-                ＋
-              </button>
-            </div>
-            {todoEntries.map((t) => {
-              const done = t.state === 'done'
+          <div style={{ columns: 2, columnGap: 0 }}>
+            {resolved.map(({ block: b, start }) => {
+              const checked = !!log[b.id]
               return (
-                <div key={t.id} className={'litem' + (done ? ' done' : '')}>
+                <div
+                  key={b.id}
+                  className={`citem s-${b.cat}${depthClass(b.deep)}${checked ? ' done' : ''}`}
+                  style={{ ...stripeVar(styles[b.cat]), breakInside: 'avoid', gridTemplateColumns: '22px 46px 1fr', gap: 8, padding: '9px 12px' }}
+                >
                   <button
                     className="chk"
                     role="checkbox"
-                    aria-checked={done}
-                    onClick={() => actions.updateLogEntry(t.id, { state: done ? 'open' : 'done' })}
+                    aria-checked={checked}
+                    onClick={() => actions.toggleBlockLog(b.id, todayIso)}
                   >
                     <Check />
                   </button>
-                  <span className="txt">{t.text}</span>
-                  <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(t.id)}>
-                    ✕
+                  <div className="time">{fmt(start)}</div>
+                  <button
+                    className="cursor-pointer border-0 bg-transparent p-0 text-left"
+                    title="Edit block"
+                    onClick={() => setEditing({ dow, blockId: b.id })}
+                    style={{ color: 'inherit' }}
+                  >
+                    <div className="title">{b.title}</div>
+                    {b.detail && <div className="desc">{b.detail}</div>}
                   </button>
                 </div>
               )
             })}
-            {todoEntries.length === 0 && <div className="hint">Nothing yet — capture the day's musts.</div>}
-          </Card>
+          </div>
+        </Card>
 
+        <div className="flex flex-col gap-4">
           {/* habits */}
           <Card title="Habits — tap to log">
             <div className="flex flex-wrap gap-2 p-3">
@@ -235,9 +235,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
               })}
             </div>
           </Card>
-        </div>
 
-        <div className="flex flex-col gap-4">
           {/* week at a glance */}
           <Card title="Week at a glance">
             <div className="flex flex-col gap-1 p-3">
@@ -267,68 +265,6 @@ export function TodayView({ data, actions, today }: ViewProps) {
                   </button>
                 )
               })}
-            </div>
-          </Card>
-
-          {/* coming up */}
-          <Card title="Coming up">
-            {upcoming.length === 0 && <div className="hint">Nothing left — the day is done.</div>}
-            {upcoming.map((u) => (
-              <div key={u.key} className={`litem s-${u.cat}${depthClass(u.deep)} upitem`} style={stripeVar(styles[u.cat as never])}>
-                <span className="bullet t">{u.when}</span>
-                <span className="txt">
-                  {u.deep ? '▲ ' : ''}
-                  {u.title}
-                </span>
-              </div>
-            ))}
-          </Card>
-
-          {/* highlights */}
-          <Card title="Highlights">
-            <div className="flex flex-col gap-1.5 p-3 text-[13px]" style={{ color: 'var(--ink-soft)' }}>
-              <div>
-                ▲ Deep work today: <b>{Math.round((deepMins / 60) * 10) / 10}h</b>
-              </div>
-              <div>
-                ✓ Plan done: <b>{pct}%</b> · Todos open: <b>{openTaskEntries.length}</b>
-              </div>
-              {topStreaks.map(({ h, s }) => (
-                <div key={h.id}>
-                  🔥 {h.name}: <b>{s}-day streak</b>
-                </div>
-              ))}
-              {topStreaks.length === 0 && <div>No active streaks — log a habit to start one.</div>}
-            </div>
-          </Card>
-
-          {/* brain dump */}
-          <Card title="Brain dump">
-            <div className="flex gap-1.5 p-2.5">
-              <input
-                type="text"
-                className="qi flex-1"
-                placeholder="Park a thought…"
-                maxLength={500}
-                value={dumpText}
-                onChange={(e) => setDumpText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submitDump()}
-              />
-              <button className="btn ghost sm" onClick={submitDump}>
-                ＋
-              </button>
-            </div>
-            {todayNotes.map((d) => (
-              <div key={d.id} className="litem">
-                <span className="bullet">—</span>
-                <span className="txt">{d.text}</span>
-                <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(d.id)}>
-                  ✕
-                </button>
-              </div>
-            ))}
-            <div className="hint">
-              Today's notes — captured to your Log. Ask Claude Code to organize these into tasks or memos later.
             </div>
           </Card>
         </div>
