@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
+import { BujoLegend } from '../../components/BujoLegend'
 import { Check } from '../../components/Check'
 import {
   addDays,
@@ -197,8 +198,21 @@ export function LogView({ data, actions, today }: ViewProps) {
     </div>
   )
 
-  if (mode === 'journal') return <div>{header}{journalView()}</div>
-  return <div>{header}{dayView()}</div>
+  if (mode === 'journal')
+    return (
+      <div>
+        {header}
+        {journalView()}
+        <BujoLegend />
+      </div>
+    )
+  return (
+    <div>
+      {header}
+      {dayView()}
+      <BujoLegend />
+    </div>
+  )
 
   // ---------- journal (whole record, continuous) ----------
   function journalView() {
