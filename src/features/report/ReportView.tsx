@@ -35,6 +35,7 @@ const ago = (idx: number, unit: 'week' | 'month') =>
 export function ReportView({ data, today }: ViewProps) {
   const [mode, setMode] = useState<'week' | 'month'>('week')
   const styles = catStyles(data.buckets)
+  const projectById = new Map(data.projects.map((p) => [p.id, p]))
 
   const allDates = [...data.blockLogRows.map((r) => r.dateIso), ...data.logEntries.map((e) => e.onDate)]
   const earliest = allDates.length ? allDates.reduce((a, b) => (a < b ? a : b)) : isoDate(today)
@@ -178,6 +179,12 @@ export function ReportView({ data, today }: ViewProps) {
                         {j > 0 && ' · '}
                         <span style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}>{e.kind === 'event' ? '○ ' : '✕ '}</span>
                         {e.text}
+                        {e.kind === 'task' && (
+                          <span style={{ color: 'var(--ink-faint)', fontSize: 11 }}>
+                            {' '}
+                            [{e.projectId ? (projectById.get(e.projectId)?.name ?? 'project') : 'loose'}]
+                          </span>
+                        )}
                       </span>
                     ))}
                   </span>

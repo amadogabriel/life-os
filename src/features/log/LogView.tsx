@@ -10,7 +10,6 @@ import {
   depthClass,
   fmtDur,
   isoDate,
-  nextState,
   SIGNIFIER_GLYPH,
   stripeVar,
   type Cat,
@@ -56,6 +55,8 @@ export function LogView({ data, actions, today }: ViewProps) {
   const [offset, setOffset] = useState(0)
   const [text, setText] = useState('')
   const [kind, setKind] = useState<LogKind>('task')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
 
   const realTodayIso = isoDate(today)
   const sel = addDays(today, offset)
@@ -81,43 +82,77 @@ export function LogView({ data, actions, today }: ViewProps) {
     for (const e of staleOpen) await actions.migrateLogEntry(e.id, realTodayIso, false)
   }
 
-  /** One rapid-log entry row, with tap-to-cycle + priority + delete. */
+  function saveEdit(id: string) {
+    const t = editText.trim()
+    setEditId(null)
+    const cur = data.logEntries.find((e) => e.id === id)
+    if (t && cur && t !== cur.text) actions.updateLogEntry(id, { text: t })
+  }
+
+  /** One rapid-log entry row: click text to edit; explicit state buttons. */
   function entryRow(e: LogEntry) {
     const done = e.state === 'done'
     const dropped = e.state === 'dropped'
-    const canCycle = e.kind === 'task'
+    const editing = editId === e.id
+    const iconBtn = (glyph: string, title: string, on: boolean, onClick: () => void, activeColor = 'var(--accent)') => (
+      <button className="x" title={title} onClick={onClick} style={{ color: on ? activeColor : undefined, fontFamily: 'var(--mono)' }}>
+        {glyph}
+      </button>
+    )
     return (
-      <div key={e.id} className={'litem' + (done ? ' done' : '')} style={stripeVar(styles[e.cat])}>
-        <button
+      <div key={e.id} className={'litem flex-wrap' + (done ? ' done' : '')} style={stripeVar(styles[e.cat])}>
+        <span
           className="bullet"
-          title={canCycle ? 'Tap to cycle: open → done → dropped' : e.kind}
-          onClick={() => canCycle && actions.updateLogEntry(e.id, { state: nextState(e.kind, e.state) })}
-          style={{
-            border: 0,
-            background: 'transparent',
-            cursor: canCycle ? 'pointer' : 'default',
-            fontFamily: 'var(--mono)',
-            width: 18,
-            color: e.cat !== 'open' ? 'var(--stripe)' : 'var(--ink-faint)',
-          }}
+          style={{ fontFamily: 'var(--mono)', width: 16, color: e.cat !== 'open' ? 'var(--stripe)' : 'var(--ink-faint)' }}
         >
           {bullet(e.kind, e.state)}
-        </button>
-        <span className="txt" style={dropped ? { textDecoration: 'line-through', color: 'var(--ink-faint)' } : undefined}>
-          {e.signifier && <span style={{ color: 'var(--accent)', marginRight: 5 }}>{SIGNIFIER_GLYPH[e.signifier]}</span>}
-          {e.text}
         </span>
-        <button
-          className="x"
-          title={e.signifier === 'priority' ? 'Unmark priority' : 'Mark priority'}
-          onClick={() => actions.updateLogEntry(e.id, { signifier: e.signifier === 'priority' ? '' : 'priority' })}
-          style={{ color: e.signifier === 'priority' ? 'var(--accent)' : undefined }}
-        >
-          ✷
-        </button>
-        <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(e.id)}>
-          ✕
-        </button>
+        {editing ? (
+          <input
+            autoFocus
+            className="qi flex-1"
+            value={editText}
+            onChange={(ev) => setEditText(ev.target.value)}
+            onKeyDown={(ev) => {
+              if (ev.key === 'Enter') saveEdit(e.id)
+              if (ev.key === 'Escape') setEditId(null)
+            }}
+            onBlur={() => saveEdit(e.id)}
+          />
+        ) : (
+          <span
+            className="txt"
+            title="Click to edit"
+            onClick={() => {
+              setEditId(e.id)
+              setEditText(e.text)
+            }}
+            style={{ cursor: 'text', ...(dropped ? { textDecoration: 'line-through', color: 'var(--ink-faint)' } : {}) }}
+          >
+            {e.signifier && <span style={{ color: 'var(--accent)', marginRight: 5 }}>{SIGNIFIER_GLYPH[e.signifier]}</span>}
+            {e.text}
+          </span>
+        )}
+        {!editing && (
+          <>
+            {e.kind === 'task' &&
+              iconBtn('✓', done ? 'Mark open' : 'Mark done', done, () =>
+                actions.updateLogEntry(e.id, { state: done ? 'open' : 'done' }),
+              )}
+            {e.kind === 'task' &&
+              e.state === 'open' &&
+              iconBtn('›', 'Carry forward to today', false, () => actions.migrateLogEntry(e.id, realTodayIso, false))}
+            {iconBtn('⊘', dropped ? 'Undrop' : 'Drop', dropped, () =>
+              actions.updateLogEntry(e.id, { state: dropped ? 'open' : 'dropped' }), 'var(--danger)',
+            )}
+            {iconBtn('✷', e.signifier === 'priority' ? 'Unmark priority' : 'Mark priority', e.signifier === 'priority', () =>
+              actions.updateLogEntry(e.id, { signifier: e.signifier === 'priority' ? '' : 'priority' }),
+            )}
+            <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(e.id)}>
+              ✕
+            </button>
+          </>
+        )}
       </div>
     )
   }
