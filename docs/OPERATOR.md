@@ -207,21 +207,36 @@ group by cat order by blocks desc;
    `profiles.notes` or a memo file.
 3. **Only after Jon confirms**, write the outputs and delete/patch the notes.
 
-### Notion (mirror the log out)
+### Notion — knowledge base + journal
 
-There's no app-side Notion integration (static site, no server) — Claude mirrors
-via the Notion MCP, and the daily log is the artifact to sync now that it
-exists. On request or on a schedule:
+Notion holds the **reference layer** (there's no app-side integration — Claude
+mirrors via the Notion MCP). Structure, in workspace **Jul Jon's Notion**:
 
-1. Read the day's / week's log + accomplishments with the queries above.
-2. Write to Notion via the Notion MCP (`notion-create-pages` /
-   `notion-update-page`) — one page per day, or a "Life OS journal" database
-   keyed by date.
-3. Intake the other way: pull rows from a Notion database and `insert into
-   log_entries (… kind='task' …)`.
+- **Life OS** home page — `39ff737c-2ef4-81d2-8c1b-c27d181de20b`
+  - **Knowledge Base** data source — `collection://5cc15ad0-0504-4a0a-8753-bb854b5f5394`
+    (props: `Name`, `Category`, `Source`, `Status`, `Captured`)
+  - **Journal** data source — `collection://bf493db5-c2be-4157-907f-caa2597f4125`
+    (props: `Name`, `Day`, `Tasks done`, `Deep sessions`, `Blocks`, `Habits`)
 
-For unattended sync, add a scheduled agent (cron routine) that runs the mirror
-each morning — ask Claude to "schedule a daily Notion journal sync".
+**File a note into the KB** (reference/knowledge captured in a brain-dump):
+read open notes (`select id, text, on_date from log_entries where kind='note'
+and state='open'`), then per note `notion-create-pages` with parent
+`data_source_id 5cc15ad0-...` and properties
+`{Name, Category, Source:'brain-dump', Status:'inbox', 'date:Captured:start': <on_date>}`.
+After Jon confirms, clear the source note: `update log_entries set state='dropped' where id='<note id>';`
+
+**Mirror a day to the Journal**: compute the numbers + accomplishments (the
+`block_logs` / `log_entries` queries above), then `notion-create-pages` with
+parent `data_source_id bf493db5-...` and properties
+`{Name:'<YYYY-MM-DD · Weekday>', 'date:Day:start': <date>, 'Tasks done', 'Deep sessions', 'Blocks', 'Habits'}`,
+accomplishments as page content. Idempotency: `notion-search` the Journal data
+source for the date first and `notion-update-page` instead of duplicating.
+
+**Intake from Notion** (the other direction): pull rows/pages and
+`insert into log_entries (user_id, on_date, kind, text, cat) values (…)`.
+
+For unattended sync, add a scheduled agent (cron) that mirrors yesterday each
+morning — ask Claude to "schedule a daily Notion journal sync".
 
 **Weekly stats**: hours per cat = sum of `dur_min` grouped by `cat`;
 "counted" cats exclude `life`/`open`. Habit streaks count consecutive
