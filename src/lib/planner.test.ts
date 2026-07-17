@@ -10,8 +10,10 @@ import {
   fmtDur,
   forkCopies,
   fortnightReport,
+  isCounted,
   isoDate,
   manilaDate,
+  materializes,
   nextOneOffStart,
   onTimelineEntries,
   parseTime,
@@ -27,6 +29,7 @@ import {
   windowAccomplishments,
   type Block,
   type BucketColor,
+  type BucketCounted,
   type Habit,
   type LogEntry,
   type LogMap,
@@ -83,6 +86,16 @@ describe('blockStyle (per-bucket color resolution)', () => {
 
   it('the exercise cat maps to its aliased palette var', () => {
     expect(blockStyle({ bucketId: null, cat: 'exercise' }, buckets).color).toBe('var(--b-exer)')
+  })
+
+  // #18: a Log Entry resolves its color the same way — the resolver already
+  // takes the {bucketId, cat} shape an entry carries, so recoloring the bucket
+  // restyles its entries live.
+  it('resolves a Log Entry color through its bucket (recolor-live)', () => {
+    const entryLike = { bucketId: 'work-blue', cat: 'work' as const }
+    expect(blockStyle(entryLike, buckets).color).toBe('#0000ff')
+    // Unassigned entry (null bucket, open cat) → gray.
+    expect(blockStyle({ bucketId: null, cat: 'open' }, buckets).color).toBe('var(--b-open)')
   })
 })
 
@@ -234,50 +247,98 @@ describe('streak', () => {
   })
 })
 
+// Buckets 1:1 with cats, mirroring the backfill: Life uncounted, the rest
+// counted. Used across the flag-driven stats/materialization tests.
+const bk = (id: string, counted: boolean): BucketCounted => ({ id, counted })
+const COUNTED_BUCKETS: BucketCounted[] = [
+  bk('bk-work', true),
+  bk('bk-math', true),
+  bk('bk-life', false),
+]
+
+describe('isCounted / materializes (bucket-flag driven)', () => {
+  it('counts only items in a counted bucket; null + uncounted never accrue', () => {
+    expect(isCounted({ bucketId: 'bk-work' }, COUNTED_BUCKETS)).toBe(true)
+    expect(isCounted({ bucketId: 'bk-life' }, COUNTED_BUCKETS)).toBe(false) // uncounted (Life)
+    expect(isCounted({ bucketId: null }, COUNTED_BUCKETS)).toBe(false) // Unassigned
+    expect(isCounted({ bucketId: 'deleted' }, COUNTED_BUCKETS)).toBe(false) // gone → Unassigned
+  })
+  it('materializes everything except an explicitly uncounted bucket', () => {
+    expect(materializes({ bucketId: 'bk-work' }, COUNTED_BUCKETS)).toBe(true)
+    expect(materializes({ bucketId: null }, COUNTED_BUCKETS)).toBe(true) // Unassigned still commits
+    expect(materializes({ bucketId: 'deleted' }, COUNTED_BUCKETS)).toBe(true)
+    expect(materializes({ bucketId: 'bk-life' }, COUNTED_BUCKETS)).toBe(false) // Life never freezes
+  })
+})
+
 describe('weekStats', () => {
-  it('sums counted categories and excludes life from completion', () => {
-    const today = new Date('2026-07-15T12:00:00') // Wednesday, dow 2
-    const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
-    blocksByDow[2] = [
-      b({ id: 'w1', dow: 2, cat: 'work', durMin: 120 }),
-      b({ id: 'l1', dow: 2, cat: 'life', durMin: 60 }),
-      b({ id: 'm1', dow: 2, cat: 'math', durMin: 60 }),
-    ]
+  const today = new Date('2026-07-15T12:00:00') // Wednesday, dow 2
+  const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
+  blocksByDow[2] = [
+    b({ id: 'w1', dow: 2, bucketId: 'bk-work', cat: 'work', durMin: 120 }),
+    b({ id: 'l1', dow: 2, bucketId: 'bk-life', cat: 'life', durMin: 60 }),
+    b({ id: 'm1', dow: 2, bucketId: 'bk-math', cat: 'math', durMin: 60 }),
+    b({ id: 'u1', dow: 2, bucketId: null, cat: 'open', durMin: 45 }), // Unassigned
+  ]
+
+  it('sums counted buckets and excludes uncounted (Life) from completion', () => {
     const logs: LogMap = { '2026-07-15': { w1: true, l1: true } }
-    const stats = weekStats(blocksByDow, logs, [], {}, today)
-    expect(stats.minsByCat.work).toBe(120)
-    expect(stats.minsByCat.life).toBeUndefined()
-    expect(stats.todayTotal).toBe(2) // life excluded
+    const stats = weekStats(blocksByDow, logs, [], {}, today, COUNTED_BUCKETS)
+    expect(stats.minsByBucket['bk-work']).toBe(120)
+    expect(stats.minsByBucket['bk-math']).toBe(60)
+    expect(stats.minsByBucket['bk-life']).toBeUndefined() // uncounted
+    expect(stats.totalMins).toBe(180) // Unassigned doesn't accrue counted hours
+    // Completion counts every materializing block — Unassigned included, Life not.
+    expect(stats.todayTotal).toBe(3)
     expect(stats.todayDone).toBe(1)
-    expect(stats.totalMins).toBe(180)
+  })
+
+  it("toggling a bucket's counted off drops its hours immediately", () => {
+    const off: BucketCounted[] = [bk('bk-work', false), bk('bk-math', true), bk('bk-life', false)]
+    const stats = weekStats(blocksByDow, {}, [], {}, today, off)
+    expect(stats.minsByBucket['bk-work']).toBeUndefined() // left the scoreboard
+    expect(stats.minsByBucket['bk-math']).toBe(60)
+    expect(stats.totalMins).toBe(60)
   })
 })
 
 describe('fortnightReport', () => {
   const today = new Date('2026-07-15T12:00:00')
   it('covers 14 days ending today at offset 0', () => {
-    const rep = fortnightReport(Array.from({ length: 7 }, () => []), {}, [], {}, today, 0)
+    const rep = fortnightReport(Array.from({ length: 7 }, () => []), {}, [], {}, today, 0, COUNTED_BUCKETS)
     expect(isoDate(rep.end)).toBe('2026-07-15')
     expect(isoDate(rep.start)).toBe('2026-07-02')
   })
-  it('accumulates planned and accomplished minutes', () => {
+  it('accumulates planned and accomplished minutes per bucket lane', () => {
     const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
     // one 60-min work block every day
-    for (let d = 0; d < 7; d++) blocksByDow[d] = [b({ id: 'blk' + d, dow: d, cat: 'work' })]
+    for (let d = 0; d < 7; d++) blocksByDow[d] = [b({ id: 'blk' + d, dow: d, bucketId: 'bk-work', cat: 'work' })]
     const logs: LogMap = { '2026-07-15': { blk2: true }, '2026-07-14': { blk1: true } }
-    const rep = fortnightReport(blocksByDow, logs, [], {}, today, 0)
+    const rep = fortnightReport(blocksByDow, logs, [], {}, today, 0, COUNTED_BUCKETS)
     expect(rep.plannedBlocks).toBe(14)
     expect(rep.doneBlocks).toBe(2)
-    expect(rep.plannedByCat.work).toBe(14 * 60)
-    expect(rep.accompByCat.work).toBe(120)
+    expect(rep.plannedByBucket['bk-work']).toBe(14 * 60)
+    expect(rep.accompByBucket['bk-work']).toBe(120)
+  })
+  it('excludes uncounted (Life) and Unassigned blocks from the report', () => {
+    const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
+    for (let d = 0; d < 7; d++)
+      blocksByDow[d] = [
+        b({ id: 'w' + d, dow: d, bucketId: 'bk-work', cat: 'work' }),
+        b({ id: 'l' + d, dow: d, bucketId: 'bk-life', cat: 'life' }),
+        b({ id: 'u' + d, dow: d, bucketId: null, cat: 'open' }),
+      ]
+    const rep = fortnightReport(blocksByDow, {}, [], {}, today, 0, COUNTED_BUCKETS)
+    expect(rep.plannedBlocks).toBe(14) // only the work blocks
+    expect(rep.plannedByBucket['bk-life']).toBeUndefined()
   })
   it('earlier fortnights contain no recent logs', () => {
     const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [b(ryDay(0))])
     function ryDay(d: number) {
-      return { id: 'blk', dow: d, cat: 'work' as const }
+      return { id: 'blk', dow: d, bucketId: 'bk-work', cat: 'work' as const }
     }
     const logs: LogMap = { '2026-07-15': { blk: true } }
-    const rep = fortnightReport(blocksByDow, logs, [], {}, today, -1)
+    const rep = fortnightReport(blocksByDow, logs, [], {}, today, -1, COUNTED_BUCKETS)
     expect(rep.doneBlocks).toBe(0)
   })
 })
@@ -289,6 +350,7 @@ const entry = (over: Partial<LogEntry>): LogEntry => ({
   state: 'done',
   signifier: '',
   text: 't',
+  bucketId: null,
   cat: 'open',
   blockId: null,
   migratedTo: null,
@@ -304,23 +366,34 @@ const entry = (over: Partial<LogEntry>): LogEntry => ({
 
 /** A frozen, block-sourced done entry (materialized then checked off). */
 const blockEntry = (over: Partial<LogEntry>): LogEntry =>
-  entry({ blockId: 'a', durMin: 60, cat: 'work', text: 'Deep work', ...over })
+  entry({ blockId: 'a', bucketId: 'bk-work', durMin: 60, cat: 'work', text: 'Deep work', ...over })
 
 describe('windowAccomplishments', () => {
-  it('groups completed blocks by commitment and counts repeats', () => {
+  it('groups completed blocks by bucket lane and counts repeats', () => {
     const entries = [
-      blockEntry({ id: 'a', blockId: 'a', text: 'Math focus', cat: 'math', deep: true }),
-      blockEntry({ id: 'b', blockId: 'b', onDate: '2026-07-14', text: 'Math focus', cat: 'math', deep: true }),
-      blockEntry({ id: 'c', blockId: 'c', text: 'Sleep', cat: 'life' }), // excluded (life)
+      blockEntry({ id: 'a', blockId: 'a', bucketId: 'bk-math', text: 'Math focus', cat: 'math', deep: true }),
+      blockEntry({ id: 'b', blockId: 'b', bucketId: 'bk-math', onDate: '2026-07-14', text: 'Math focus', cat: 'math', deep: true }),
+      blockEntry({ id: 'c', blockId: 'c', bucketId: 'bk-life', text: 'Sleep', cat: 'life' }), // excluded (uncounted)
     ]
-    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15')
-    expect(acc.byCat).toHaveLength(1)
-    expect(acc.byCat[0].cat).toBe('math')
-    expect(acc.byCat[0].titles[0]).toEqual({ title: 'Math focus', count: 2, deep: true })
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15', COUNTED_BUCKETS)
+    expect(acc.byBucket).toHaveLength(1)
+    expect(acc.byBucket[0].bucketId).toBe('bk-math')
+    expect(acc.byBucket[0].cat).toBe('math')
+    expect(acc.byBucket[0].titles[0]).toEqual({ title: 'Math focus', count: 2, deep: true })
     expect(acc.deepSessions).toBe(2)
     expect(acc.totalBlocks).toBe(2)
     // block-sourced done entries are "blocks", not hand-typed tasks
     expect(acc.tasksDone).toBe(0)
+  })
+
+  it('excludes Unassigned (null bucket) block accomplishments from the lanes', () => {
+    const entries = [
+      blockEntry({ id: 'a', blockId: 'a', bucketId: null, cat: 'open', text: 'Loose block' }),
+      blockEntry({ id: 'b', blockId: 'b', bucketId: 'bk-work', text: 'Ship it' }),
+    ]
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15', COUNTED_BUCKETS)
+    expect(acc.byBucket.map((c) => c.bucketId)).toEqual(['bk-work'])
+    expect(acc.totalBlocks).toBe(1)
   })
 
   it('counts hand-typed done tasks, events and migrations, ignoring out-of-window rows', () => {
@@ -332,11 +405,25 @@ describe('windowAccomplishments', () => {
       entry({ id: '5', kind: 'task', state: 'done', onDate: '2026-06-01' }), // out of window
       blockEntry({ id: '6' }), // a done block — a "block", not a hand-typed task
     ]
-    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15')
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15', COUNTED_BUCKETS)
     expect(acc.tasksDone).toBe(1)
     expect(acc.migrated).toBe(1)
     expect(acc.events).toBe(1)
     expect(acc.totalBlocks).toBe(1)
+  })
+
+  // Backfill parity: because every historical row is mapped to its cat's 1:1
+  // bucket, a past window's bucket-lane totals equal what the cat lanes showed.
+  it('bucket-lane totals match the pre-migration cat-lane totals (backfill parity)', () => {
+    const entries = [
+      blockEntry({ id: 'w', blockId: 'w', bucketId: 'bk-work', cat: 'work', text: 'Work A', durMin: 90 }),
+      blockEntry({ id: 'm1', blockId: 'm1', bucketId: 'bk-math', cat: 'math', text: 'Math A', durMin: 60 }),
+      blockEntry({ id: 'm2', blockId: 'm2', bucketId: 'bk-math', cat: 'math', text: 'Math B', durMin: 30 }),
+    ]
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15', COUNTED_BUCKETS)
+    const byId = Object.fromEntries(acc.byBucket.map((c) => [c.bucketId, c.mins]))
+    // Same partition as grouping by cat would have produced (work 90, math 90).
+    expect(byId).toEqual({ 'bk-work': 90, 'bk-math': 90 })
   })
 })
 
@@ -354,12 +441,12 @@ describe('doneBlockMap', () => {
 describe('blockLogRowsFromEntries', () => {
   it('projects done block-sourced entries into frozen snapshot rows', () => {
     const rows = blockLogRowsFromEntries([
-      blockEntry({ id: '1', blockId: 'b1', text: 'Math', cat: 'math', durMin: 90, deep: true }),
+      blockEntry({ id: '1', blockId: 'b1', bucketId: 'bk-math', text: 'Math', cat: 'math', durMin: 90, deep: true }),
       blockEntry({ id: '2', state: 'open' }), // open — not an accomplishment
       entry({ id: '3', state: 'done' }), // hand-typed — no frozen duration
     ])
     expect(rows).toEqual([
-      { blockId: 'b1', dateIso: '2026-07-15', title: 'Math', cat: 'math', durMin: 90, deep: true },
+      { blockId: 'b1', dateIso: '2026-07-15', title: 'Math', bucketId: 'bk-math', cat: 'math', durMin: 90, deep: true },
     ])
   })
 })
@@ -438,6 +525,19 @@ describe('planForDate', () => {
     entry({ id: 't3', onDate: todayIso, text: 'Chained today', cat: 'math', startMin: 0, durMin: null, state: 'open', position: 2 }),
   ]
   const input = { blocksByDow, logEntries }
+
+  it('entry-backed items carry the entry bucketId (frozen days color by bucket) — #18', () => {
+    const withBucket: LogEntry[] = [
+      entry({ id: 'fb', onDate: '2026-07-13', bucketId: 'bk-work', cat: 'work', text: 'Frozen', startMin: 540, durMin: 60, state: 'open', position: 0 }),
+    ]
+    const past = planForDate({ blocksByDow, logEntries: withBucket }, '2026-07-13', todayIso)
+    expect(past.items[0].bucketId).toBe('bk-work')
+    // a merged one-off likewise threads its entry's bucket
+    const oneOffEntry = entry({ id: 'oo', onDate: '2026-07-16', bucketId: 'bk-math', cat: 'math', text: 'One-off', startMin: 660, state: 'open', position: 0 })
+    const future = planForDate({ blocksByDow, logEntries: [oneOffEntry] }, '2026-07-16', todayIso)
+    const item = future.items.find((i) => i.entryId === 'oo')
+    expect(item?.bucketId).toBe('bk-math')
+  })
 
   it('past day with entries → the frozen plan, laid out by re-flow, entry-backed', () => {
     const day = planForDate(input, '2026-07-13', todayIso)

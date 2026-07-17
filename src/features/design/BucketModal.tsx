@@ -24,13 +24,16 @@ export function BucketModal({
   onClose,
 }: {
   bucket: Bucket | null
-  onSave: (b: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string }) => void
+  onSave: (b: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string; counted: boolean }) => void
   onDelete: (id: string) => void
   onClose: () => void
 }) {
   const [name, setName] = useState(bucket?.name ?? '')
   const [cat, setCat] = useState<Cat>(bucket?.cat ?? 'work')
   const [color, setColor] = useState(bucket?.color ?? '')
+  // Whether this bucket's hours hit the scoreboard (ADR-0003 #17). New buckets
+  // count by default; Life-type recovery buckets get switched off.
+  const [counted, setCounted] = useState(bucket?.counted ?? true)
   const [tasks, setTasks] = useState<{ name: string; deep: boolean }[]>(
     bucket ? bucket.tasks.map((t) => ({ name: t.name, deep: t.deep })) : [{ name: 'New task', deep: false }],
   )
@@ -108,6 +111,16 @@ export function BucketModal({
           + Add task
         </button>
       </div>
+      <div className="field">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input type="checkbox" checked={counted} onChange={(e) => setCounted(e.target.checked)} />
+          <span>Counts toward the scoreboard</span>
+        </label>
+        <div className="hint px-0">
+          On: hours land in Stats and the weekly review, and blocks freeze into the record. Off (e.g.
+          Life — sleep, meals, commute): excluded from both, and never materialized.
+        </div>
+      </div>
       <div className="mt-[18px] flex items-center gap-2">
         {bucket && (
           <button className="btn danger ghost" onClick={() => onDelete(bucket.id)}>
@@ -126,6 +139,7 @@ export function BucketModal({
               name: name.trim() || 'Bucket',
               cat,
               color,
+              counted,
               tasks: tasks.map((t) => ({ ...t, name: t.name.trim() })).filter((t) => t.name),
             })
           }

@@ -3,8 +3,8 @@ import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
 import {
   addDays,
+  blockStyle,
   bullet,
-  catStyles,
   DOW,
   isoDate,
   manilaDate,
@@ -55,7 +55,8 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
   const [sName, setSName] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [wkOff, setWkOff] = useState(0) // Sprint work card's week pager (0 = this week)
-  const styles = catStyles(data.buckets)
+  // Log Entries recolor LIVE through their Bucket (#18).
+  const entryStyle = (e: LogEntry) => stripeVar(blockStyle({ bucketId: e.bucketId, cat: e.cat }, data.buckets))
   const todayDate = manilaDate(today)
   const todayIso = isoDate(todayDate)
 
@@ -131,7 +132,7 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
     return (
       <div
         className="flex items-center gap-2 rounded-md border px-2 py-1.5"
-        style={{ borderColor: 'var(--line-soft)', background: 'var(--paper)', ...stripeVar(styles[e.cat]) }}
+        style={{ borderColor: 'var(--line-soft)', background: 'var(--paper)', ...entryStyle(e) }}
       >
         {e.kind === 'task' ? (
           <button
@@ -268,7 +269,7 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
                 const sp = e.sprintId ? sprintById.get(e.sprintId) : undefined
                 const pr = sp ? projectById.get(sp.projectId) : undefined
                 return (
-                  <div key={e.id} className="litem flex-wrap" style={stripeVar(styles[e.cat])}>
+                  <div key={e.id} className="litem flex-wrap" style={entryStyle(e)}>
                     <span className="txt">
                       {e.text}
                       {(pr || sp) && (
@@ -314,7 +315,7 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
                 <div
                   key={e.id}
                   className="flex items-center gap-2 rounded-md border px-2 py-1.5"
-                  style={{ borderColor: 'var(--line-soft)', background: 'var(--paper)', ...stripeVar(styles[e.cat]) }}
+                  style={{ borderColor: 'var(--line-soft)', background: 'var(--paper)', ...entryStyle(e) }}
                 >
                   <span className="bullet" style={{ fontFamily: 'var(--mono)', width: 16, color: 'var(--ink-faint)' }}>
                     {bullet(e.kind, e.state)}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
-import { catStyles, depthClass, dowMon, fmt, isoDate, onTimelineEntries, resolve, streak, stripeVar } from '../../lib/planner'
+import { blockStyle, catStyles, depthClass, dowMon, fmt, isoDate, materializes, onTimelineEntries, resolve, streak, stripeVar } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from '../planner/BlockModal'
 import { DayEditor } from '../planner/DayEditor'
 import { TodayEditor } from './TodayEditor'
@@ -44,7 +44,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
   const [todoText, setTodoText] = useState('')
   const [dumpText, setDumpText] = useState('')
 
-  const doneable = resolved.filter((r) => r.block.cat !== 'life')
+  const doneable = resolved.filter((r) => materializes(r.block, data.buckets))
   const done = doneable.filter((r) => r.block.state === 'done').length
   const pct = doneable.length ? Math.round((done / doneable.length) * 100) : 0
 
@@ -202,7 +202,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                 <div
                   key={e.id}
                   className={`citem s-${e.cat}${depthClass(e.deep)}${checked ? ' done' : ''}`}
-                  style={{ ...stripeVar(styles[e.cat]), breakInside: 'avoid', gridTemplateColumns: '22px 46px 1fr', gap: 8, padding: '9px 12px' }}
+                  style={{ ...stripeVar(blockStyle({ bucketId: e.bucketId, cat: e.cat }, data.buckets)), breakInside: 'avoid', gridTemplateColumns: '22px 46px 1fr', gap: 8, padding: '9px 12px' }}
                 >
                   <button
                     className="chk"
@@ -285,7 +285,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                           key={r.block.id}
                           className={`gseg s-${r.block.cat}${depthClass(r.block.deep)}`}
                           style={{
-                            ...stripeVar(styles[r.block.cat]),
+                            ...stripeVar(blockStyle({ bucketId: r.block.bucketId, cat: r.block.cat }, data.buckets)),
                             width: `${(r.block.durMin / total) * 100}%`,
                           }}
                         />

@@ -79,6 +79,12 @@ export interface LogEntry {
   state: LogState
   signifier: LogSignifier
   text: string
+  // The Bucket this entry belongs to (ADR-0003). Null = Unassigned (rendered
+  // gray). Frozen from the source Block on materialize; picked at rapid-log;
+  // backfilled through the block (else the cat→bucket 1:1 map) for history.
+  // Color resolves live through this reference via `blockStyle`; `cat` below is
+  // the stamped derived plumbing, kept in lockstep, never authoritative.
+  bucketId: string | null
   cat: Cat
   blockId: string | null
   migratedTo: string | null
@@ -106,6 +112,7 @@ export function newLogEntry(over: Partial<LogEntry> & Pick<LogEntry, 'id' | 'onD
     state: 'open',
     signifier: '',
     text: '',
+    bucketId: null,
     cat: 'open',
     blockId: null,
     migratedTo: null,
@@ -154,6 +161,7 @@ export interface BlockLogRow {
   blockId: string
   dateIso: string
   title: string
+  bucketId: string | null
   cat: Cat
   durMin: number
   deep: boolean
@@ -190,6 +198,7 @@ export function blockLogRowsFromEntries(entries: LogEntry[]): BlockLogRow[] {
     blockId: e.blockId ?? '',
     dateIso: e.onDate,
     title: e.text,
+    bucketId: e.bucketId,
     cat: e.cat,
     durMin: e.durMin ?? 0,
     deep: e.deep,
@@ -308,6 +317,41 @@ export function blockStyle(block: { bucketId: string | null; cat: Cat }, buckets
 /** ' sh' class suffix for shallow (non-deep) work — rendered muted. */
 export function depthClass(deep: boolean): string {
   return deep ? '' : ' sh'
+}
+
+// ---------- counted / materialization (bucket-flag driven, ADR-0003 #17) ----------
+
+/** The minimal Bucket shape the counted/materialization resolvers read. */
+export interface BucketCounted {
+  id: string
+  counted: boolean
+}
+
+/**
+ * Does this item's hours belong on the scoreboard? Resolved LIVE through the
+ * item's Bucket `counted` flag — replaces the hardcoded `COUNTED`/`cat==='life'`
+ * gate. A null/deleted bucket is **Unassigned** and never accrues (replacing the
+ * `open` cat's role); an explicitly uncounted bucket (e.g. Life) doesn't either.
+ * Pure: plain data in, boolean out — flipping a bucket's flag re-keys stats and
+ * the weekly review instantly.
+ */
+export function isCounted(item: { bucketId: string | null }, buckets: BucketCounted[]): boolean {
+  if (!item.bucketId) return false
+  const bk = buckets.find((b) => b.id === item.bucketId)
+  return !!bk?.counted
+}
+
+/**
+ * Does this item freeze into the record on materialize? Only an explicitly
+ * uncounted Bucket (e.g. Life: sleep/meals/commute) is excluded — replaces the
+ * `cat <> 'life'` special case. A null/deleted bucket (**Unassigned**) still
+ * materializes as a commitment, as does any counted bucket; it simply never
+ * accrues counted hours (see `isCounted`).
+ */
+export function materializes(item: { bucketId: string | null }, buckets: BucketCounted[]): boolean {
+  if (!item.bucketId) return true
+  const bk = buckets.find((b) => b.id === item.bucketId)
+  return bk ? bk.counted : true // a deleted bucket behaves as Unassigned
 }
 
 // ---------- time / date helpers ----------
@@ -466,8 +510,9 @@ export interface PlanItem {
   key: string // stable render key, unique within the day
   title: string
   detail: string
-  // The source Block's Bucket reference (null for entry-backed items, which
-  // don't carry one until #18) — blocks resolve their color live through it.
+  // The Bucket reference — a Block's for projection/fork items, the entry's own
+  // for entry-backed (frozen/today/one-off) items (#18). Color resolves live
+  // through it (see `blockStyle`); null = Unassigned (gray).
   bucketId: string | null
   cat: Cat
   deep: boolean
@@ -511,7 +556,7 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
     key: `entry:${e.id}`,
     title: e.text,
     detail: '',
-    bucketId: null, // Log Entries don't carry a Bucket reference yet (#18)
+    bucketId: e.bucketId, // Log Entries carry a Bucket reference (#18); color resolves live
     cat: e.cat,
     deep: e.deep,
     durMin: e.durMin,
@@ -548,7 +593,7 @@ export function mergeDatedOneOffs(base: PlanItem[], oneOffs: LogEntry[]): PlanIt
         key: `entry:${e.id}`,
         title: e.text,
         detail: '',
-        bucketId: null, // Log Entries don't carry a Bucket reference yet (#18)
+        bucketId: e.bucketId, // Log Entries carry a Bucket reference (#18); color resolves live
         cat: e.cat,
         deep: e.deep,
         durMin,
@@ -720,7 +765,8 @@ export function streak(habit: Pick<Habit, 'id' | 'days'>, habitLogs: LogMap, tod
 // ---------- weekly stats ----------
 
 export interface WeekStats {
-  minsByCat: Partial<Record<Cat, number>>
+  /** Planned counted minutes grouped by Bucket lane (bucketId). */
+  minsByBucket: Record<string, number>
   totalMins: number
   todayDone: number
   todayTotal: number
@@ -730,27 +776,36 @@ export interface WeekStats {
   bestStreakHabit: string
 }
 
+/**
+ * This week's planned/accomplished picture, grouped by **Bucket lane** and
+ * gated by each bucket's `counted` flag (ADR-0003 #17). `minsByBucket` sums only
+ * counted blocks' planned minutes (Unassigned + uncounted buckets excluded);
+ * completion counts (today/week Done/Total) include every **materializing**
+ * block — i.e. exclude only uncounted buckets like Life, but keep Unassigned
+ * commitments (replaces the old `cat <> 'life'` / `COUNTED` cat lists).
+ */
 export function weekStats(
   blocksByDow: Block[][],
   blockLogs: LogMap,
   habits: Habit[],
   habitLogs: LogMap,
   today: Date,
+  buckets: BucketCounted[],
 ): WeekStats {
-  const minsByCat: Partial<Record<Cat, number>> = {}
+  const minsByBucket: Record<string, number> = {}
   for (const dayBlocks of blocksByDow) {
     for (const b of dayBlocks) {
-      if (COUNTED.includes(b.cat)) minsByCat[b.cat] = (minsByCat[b.cat] ?? 0) + b.durMin
+      if (b.bucketId && isCounted(b, buckets)) minsByBucket[b.bucketId] = (minsByBucket[b.bucketId] ?? 0) + b.durMin
     }
   }
-  const totalMins = Object.values(minsByCat).reduce((a, b) => a + b, 0)
+  const totalMins = Object.values(minsByBucket).reduce((a, b) => a + b, 0)
 
   const todayIso = isoDate(today)
   const todayLog = blockLogs[todayIso] ?? {}
   let todayDone = 0
   let todayTotal = 0
   for (const b of blocksByDow[dowMon(today)] ?? []) {
-    if (b.cat === 'life') continue
+    if (!materializes(b, buckets)) continue
     todayTotal++
     if (todayLog[b.id]) todayDone++
   }
@@ -760,7 +815,7 @@ export function weekStats(
   weekDates(today).forEach((d, i) => {
     const log = blockLogs[isoDate(d)] ?? {}
     for (const b of blocksByDow[i] ?? []) {
-      if (b.cat === 'life') continue
+      if (!materializes(b, buckets)) continue
       weekTotal++
       if (log[b.id]) weekDone++
     }
@@ -776,7 +831,7 @@ export function weekStats(
     }
   }
 
-  return { minsByCat, totalMins, todayDone, todayTotal, weekDone, weekTotal, bestStreak, bestStreakHabit }
+  return { minsByBucket, totalMins, todayDone, todayTotal, weekDone, weekTotal, bestStreak, bestStreakHabit }
 }
 
 // ---------- fortnight report ----------
@@ -784,15 +839,17 @@ export function weekStats(
 export interface FortnightReport {
   start: Date
   end: Date
-  accompByCat: Partial<Record<Cat, number>>
-  plannedByCat: Partial<Record<Cat, number>>
+  /** Grouped by Bucket lane (bucketId), counted buckets only. */
+  accompByBucket: Record<string, number>
+  plannedByBucket: Record<string, number>
   doneBlocks: number
   plannedBlocks: number
   habits: { habit: Habit; target: number; done: number; streak: number }[]
   bestStreak: number
 }
 
-/** offset 0 = the 14 days ending today; -1 = the previous fortnight, etc. */
+/** offset 0 = the 14 days ending today; -1 = the previous fortnight, etc.
+ *  Grouped by Bucket lane and gated by each bucket's `counted` flag (#17). */
 export function fortnightReport(
   blocksByDow: Block[][],
   blockLogs: LogMap,
@@ -800,11 +857,12 @@ export function fortnightReport(
   habitLogs: LogMap,
   today: Date,
   offset: number,
+  buckets: BucketCounted[],
 ): FortnightReport {
   const endOff = offset * 14
   const startOff = endOff - 13
-  const accompByCat: Partial<Record<Cat, number>> = {}
-  const plannedByCat: Partial<Record<Cat, number>> = {}
+  const accompByBucket: Record<string, number> = {}
+  const plannedByBucket: Record<string, number> = {}
   let doneBlocks = 0
   let plannedBlocks = 0
 
@@ -812,11 +870,11 @@ export function fortnightReport(
     const d = addDays(today, off)
     const log = blockLogs[isoDate(d)] ?? {}
     for (const b of blocksByDow[dowMon(d)] ?? []) {
-      if (!COUNTED.includes(b.cat)) continue
-      plannedByCat[b.cat] = (plannedByCat[b.cat] ?? 0) + b.durMin
+      if (!b.bucketId || !isCounted(b, buckets)) continue
+      plannedByBucket[b.bucketId] = (plannedByBucket[b.bucketId] ?? 0) + b.durMin
       plannedBlocks++
       if (log[b.id]) {
-        accompByCat[b.cat] = (accompByCat[b.cat] ?? 0) + b.durMin
+        accompByBucket[b.bucketId] = (accompByBucket[b.bucketId] ?? 0) + b.durMin
         doneBlocks++
       }
     }
@@ -837,8 +895,8 @@ export function fortnightReport(
   return {
     start: addDays(today, startOff),
     end: addDays(today, endOff),
-    accompByCat,
-    plannedByCat,
+    accompByBucket,
+    plannedByBucket,
     doneBlocks,
     plannedBlocks,
     habits: habitRows,
@@ -848,15 +906,16 @@ export function fortnightReport(
 
 // ---------- accomplishments (what got done, not hours) ----------
 
-export interface CatAccomplishment {
-  cat: Cat
+export interface BucketAccomplishment {
+  bucketId: string
+  cat: Cat // representative stamped cat, for a palette/label fallback
   titles: { title: string; count: number; deep: boolean }[]
   mins: number
   deepSessions: number
 }
 
 export interface Accomplishments {
-  byCat: CatAccomplishment[]
+  byBucket: BucketAccomplishment[]
   tasksDone: number
   events: number
   migrated: number
@@ -867,26 +926,30 @@ export interface Accomplishments {
 /**
  * What real work was completed in the inclusive [startIso, endIso] window,
  * read log-primary from the Daily Log. Done, block-sourced entries (carrying a
- * frozen duration) are the "blocks" — grouped by commitment with their distinct
- * titles (× repeat count); `life`/`open` are excluded. Hand-typed done tasks
- * (no frozen duration) are counted separately as `tasksDone`, so ticking a
- * block is never double-counted. This is the accomplishment view — not hours.
+ * frozen duration) are the "blocks" — grouped by **Bucket lane** with their
+ * distinct titles (× repeat count); gated by each bucket's `counted` flag, so
+ * Unassigned + uncounted (Life) rows are excluded (ADR-0003 #17/#18). Because
+ * every row is backfilled to its cat's 1:1 bucket, a past window's bucket-lane
+ * totals equal what the cat lanes showed before. Hand-typed done tasks (no
+ * frozen duration) are counted separately as `tasksDone`, so ticking a block is
+ * never double-counted. This is the accomplishment view — not hours.
  */
 export function windowAccomplishments(
   logEntries: LogEntry[],
   startIso: string,
   endIso: string,
+  buckets: BucketCounted[],
 ): Accomplishments {
   const inWin = (iso: string) => iso >= startIso && iso <= endIso
-  const catMap = new Map<Cat, CatAccomplishment>()
+  const bucketMap = new Map<string, BucketAccomplishment>()
   let totalBlocks = 0
   let deepSessions = 0
 
   for (const r of blockLogRowsFromEntries(logEntries)) {
-    if (!inWin(r.dateIso) || !COUNTED.includes(r.cat)) continue
+    if (!inWin(r.dateIso) || !r.bucketId || !isCounted(r, buckets)) continue
     totalBlocks++
     if (r.deep) deepSessions++
-    const entry = catMap.get(r.cat) ?? { cat: r.cat, titles: [], mins: 0, deepSessions: 0 }
+    const entry = bucketMap.get(r.bucketId) ?? { bucketId: r.bucketId, cat: r.cat, titles: [], mins: 0, deepSessions: 0 }
     entry.mins += r.durMin
     if (r.deep) entry.deepSessions++
     const t = entry.titles.find((x) => x.title === r.title)
@@ -896,11 +959,11 @@ export function windowAccomplishments(
     } else {
       entry.titles.push({ title: r.title, count: 1, deep: r.deep })
     }
-    catMap.set(r.cat, entry)
+    bucketMap.set(r.bucketId, entry)
   }
 
-  const byCat = [...catMap.values()].sort((a, b) => b.mins - a.mins)
-  for (const c of byCat) c.titles.sort((a, b) => Number(b.deep) - Number(a.deep) || b.count - a.count)
+  const byBucket = [...bucketMap.values()].sort((a, b) => b.mins - a.mins)
+  for (const c of byBucket) c.titles.sort((a, b) => Number(b.deep) - Number(a.deep) || b.count - a.count)
 
   let tasksDone = 0
   let events = 0
@@ -914,5 +977,5 @@ export function windowAccomplishments(
     if (e.kind === 'event') events++
   }
 
-  return { byCat, tasksDone, events, migrated, deepSessions, totalBlocks }
+  return { byBucket, tasksDone, events, migrated, deepSessions, totalBlocks }
 }
