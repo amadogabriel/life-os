@@ -304,6 +304,7 @@ export type Database = {
       }
       habits: {
         Row: {
+          bucket_id: string | null
           cat: string
           days: number[]
           id: string
@@ -312,6 +313,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          bucket_id?: string | null
           cat: string
           days?: number[]
           id?: string
@@ -320,6 +322,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          bucket_id?: string | null
           cat?: string
           days?: number[]
           id?: string
@@ -327,7 +330,15 @@ export type Database = {
           position?: number
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "habits_bucket_id_fkey"
+            columns: ["bucket_id"]
+            isOneToOne: false
+            referencedRelation: "buckets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       log_entries: {
         Row: {

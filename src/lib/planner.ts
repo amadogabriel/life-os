@@ -56,6 +56,11 @@ export interface Day {
 export interface Habit {
   id: string
   name: string
+  // The Bucket this habit belongs to (ADR-0003, #19). Null = Unassigned. Its
+  // toggles, streak cells and bars resolve color live through this reference
+  // (see `blockStyle`); `cat` below is the stamped derived plumbing kept in
+  // lockstep, never authoritative.
+  bucketId: string | null
   cat: Cat
   days: number[] // target weekdays, 0 = Monday
   position: number
@@ -312,6 +317,22 @@ export function blockStyle(block: { bucketId: string | null; cat: Cat }, buckets
   if (bucket?.color) return { color: bucket.color }
   const cat = bucket?.cat ?? block.cat
   return { color: CAT_STRIPE[cat] ?? CAT_STRIPE.open }
+}
+
+/**
+ * The Bucket a legacy cat-keyed row backfills to: its 1:1 bucket, or the
+ * lowest-position one when several buckets share the cat — mirroring migration
+ * 0018's deterministic pick. `null` when no bucket carries the cat.
+ *
+ * Used to stamp `bucketId` onto Habits (#19) so their color resolves live
+ * through `blockStyle`, and by the demo backend to reproduce the SQL backfill.
+ */
+export function bucketIdForCat(cat: Cat, buckets: { id: string; cat: Cat; position: number }[]): string | null {
+  let best: { id: string; position: number } | undefined
+  for (const bk of buckets) {
+    if (bk.cat === cat && (!best || bk.position < best.position)) best = bk
+  }
+  return best?.id ?? null
 }
 
 /** ' sh' class suffix for shallow (non-deep) work — rendered muted. */

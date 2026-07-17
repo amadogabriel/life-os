@@ -1,20 +1,32 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Modal } from '../../components/Modal'
-import { CATS, DOW, type Cat, type Habit } from '../../lib/planner'
+import { DOW, type Cat, type Habit } from '../../lib/planner'
+import type { Bucket } from '../../lib/queries/planner'
 
 export function HabitModal({
   habit,
+  buckets,
   onSave,
   onDelete,
   onClose,
 }: {
   habit: Habit | null
-  onSave: (h: { id?: string; name: string; cat: Cat; days: number[] }) => void
+  buckets: Bucket[]
+  onSave: (h: { id?: string; name: string; bucketId: string | null; cat: Cat; days: number[] }) => void
   onDelete: (id: string) => void
   onClose: () => void
 }) {
   const [name, setName] = useState(habit?.name ?? '')
-  const [cat, setCat] = useState<Cat>(habit?.cat ?? 'exercise')
+  // Prefer the habit's own Bucket reference; fall back to the first bucket with
+  // its stamped cat (legacy habits with no reference), then the first bucket.
+  const initialBucket = useMemo(
+    () =>
+      buckets.find((bk) => bk.id === habit?.bucketId) ??
+      buckets.find((bk) => bk.cat === habit?.cat) ??
+      buckets[0],
+    [buckets, habit],
+  )
+  const [bucketId, setBucketId] = useState(initialBucket?.id ?? '')
   const [days, setDays] = useState<number[]>(habit?.days ?? [0, 1, 2, 3, 4])
 
   const toggleDay = (i: number) =>
@@ -27,15 +39,13 @@ export function HabitModal({
         <input type="text" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
       </div>
       <div className="field">
-        <label>Category</label>
-        <select value={cat} onChange={(e) => setCat(e.target.value as Cat)}>
-          {(Object.keys(CATS) as Cat[])
-            .filter((k) => k !== 'life' && k !== 'open')
-            .map((k) => (
-              <option key={k} value={k}>
-                {CATS[k]}
-              </option>
-            ))}
+        <label>Bucket</label>
+        <select value={bucketId} onChange={(e) => setBucketId(e.target.value)}>
+          {buckets.map((bk) => (
+            <option key={bk.id} value={bk.id}>
+              {bk.name}
+            </option>
+          ))}
         </select>
       </div>
       <div className="field">
@@ -60,7 +70,18 @@ export function HabitModal({
         </button>
         <button
           className="btn primary"
-          onClick={() => onSave({ id: habit?.id, name: name.trim() || 'Habit', cat, days })}
+          onClick={() => {
+            // The Bucket is authoritative; `cat` is stamped from it as derived
+            // plumbing (ADR-0003). No bucket → Unassigned (null, open cat).
+            const bucket = buckets.find((bk) => bk.id === bucketId)
+            onSave({
+              id: habit?.id,
+              name: name.trim() || 'Habit',
+              bucketId: bucket?.id ?? null,
+              cat: bucket?.cat ?? 'open',
+              days,
+            })
+          }}
         >
           Save
         </button>

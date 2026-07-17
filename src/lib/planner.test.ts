@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   blockLogRowsFromEntries,
   blockStyle,
+  bucketIdForCat,
   depthClass,
   doneBlockMap,
   dowMon,
@@ -96,6 +97,71 @@ describe('blockStyle (per-bucket color resolution)', () => {
     expect(blockStyle(entryLike, buckets).color).toBe('#0000ff')
     // Unassigned entry (null bucket, open cat) → gray.
     expect(blockStyle({ bucketId: null, cat: 'open' }, buckets).color).toBe('var(--b-open)')
+  })
+})
+
+describe('habits join the taxonomy (bucket color + backfill, #19)', () => {
+  const h = (over: Partial<Habit>): Habit => ({
+    id: 'h1',
+    name: 'Habit',
+    bucketId: null,
+    cat: 'exercise',
+    days: [0, 1, 2, 3, 4],
+    position: 0,
+    ...over,
+  })
+
+  // A habit resolves color through the SAME per-item resolver blocks use,
+  // reading its live Bucket reference — no habit-specific resolution logic.
+  const buckets: BucketColor[] = [
+    { id: 'exer-orange', cat: 'exercise', color: '#ffa500' },
+    { id: 'chin-plain', cat: 'chin', color: '' }, // no custom color
+  ]
+
+  it('resolves a habit through its bucket custom color (tier 1)', () => {
+    expect(blockStyle(h({ bucketId: 'exer-orange', cat: 'exercise' }), buckets).color).toBe('#ffa500')
+  })
+
+  it('falls back to the cat palette when the bucket has no custom color (tier 2)', () => {
+    expect(blockStyle(h({ bucketId: 'chin-plain', cat: 'chin' }), buckets).color).toBe('var(--b-chin)')
+  })
+
+  it('recoloring a bucket restyles the habit live (reads the live bucket list)', () => {
+    const habit = h({ bucketId: 'exer-orange', cat: 'exercise' })
+    const recolored: BucketColor[] = [{ id: 'exer-orange', cat: 'exercise', color: '#00ff00' }]
+    expect(blockStyle(habit, recolored).color).toBe('#00ff00')
+  })
+
+  it('a deleted bucket set-nulls the habit, reverting to its stamped cat palette (still functional)', () => {
+    // deleteBucket set-nulls bucket_id but keeps the derived `cat` — the habit
+    // stays functional, just gray/fallback.
+    expect(blockStyle(h({ bucketId: null, cat: 'exercise' }), buckets).color).toBe('var(--b-exer)')
+    // a dangling id (bucket gone from the list) behaves the same
+    expect(blockStyle(h({ bucketId: 'exer-orange', cat: 'exercise' }), []).color).toBe('var(--b-exer)')
+  })
+
+  it('an unassigned habit (null bucket, open cat) is gray (tier 3)', () => {
+    expect(blockStyle(h({ bucketId: null, cat: 'open' }), buckets).color).toBe('var(--b-open)')
+  })
+
+  it('backfills a habit to its cat 1:1 bucket', () => {
+    const bks = [
+      { id: 'work', cat: 'work' as const, position: 0 },
+      { id: 'exer', cat: 'exercise' as const, position: 1 },
+    ]
+    expect(bucketIdForCat('exercise', bks)).toBe('exer')
+  })
+
+  it('backfill picks the lowest-position bucket when several share a cat', () => {
+    const bks = [
+      { id: 'work-late', cat: 'work' as const, position: 5 },
+      { id: 'work-early', cat: 'work' as const, position: 2 },
+    ]
+    expect(bucketIdForCat('work', bks)).toBe('work-early')
+  })
+
+  it('backfill yields null when no bucket carries the cat (habit stays Unassigned)', () => {
+    expect(bucketIdForCat('thesis', [{ id: 'work', cat: 'work' as const, position: 0 }])).toBeNull()
   })
 })
 

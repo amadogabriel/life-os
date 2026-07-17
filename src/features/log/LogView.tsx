@@ -426,7 +426,7 @@ export function LogView({ data, actions, today }: ViewProps) {
             {completedHabits.length > 0 && (
               <div className="flex flex-wrap gap-2 p-3">
                 {completedHabits.map((h) => (
-                  <span key={h.id} className={`htog s-${h.cat}`} style={stripeVar(styles[h.cat])}>
+                  <span key={h.id} className={`htog s-${h.cat}`} style={stripeVar(blockStyle(h, data.buckets))}>
                     <span className="mini" style={{ color: 'var(--accent)' }}>
                       <Check />
                     </span>

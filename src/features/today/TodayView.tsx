@@ -250,7 +250,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                   <button
                     key={h.id}
                     className={`htog s-${h.cat}`}
-                    style={stripeVar(styles[h.cat])}
+                    style={stripeVar(blockStyle(h, data.buckets))}
                     role="checkbox"
                     aria-checked={on}
                     onClick={() => actions.toggleHabitLog(h.id, todayIso)}
