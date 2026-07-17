@@ -133,3 +133,41 @@ _Avoid_: rollover, carry-over
 **on_date**:
 The user's **local** day (Asia/Manila, UTC+8) that a Log Entry belongs to. Never
 UTC `current_date`.
+
+### Projects (turning notes into runs of work)
+
+**Project**:
+A user-defined initiative that Sprints run under. Has a status and its own
+list-order `position`. Deleting a Project deletes its Sprints; the Project's
+Log Entries return to the Inbox.
+_Avoid_: initiative, epic
+
+**Sprint**:
+A time-boxed run of work under a Project, arranged left→right in the order the
+user will run them (its own `position` — distinct from a Log Entry's
+day-timeline `position` or a card's **Board position**). Has a status.
+_Avoid_: milestone, iteration
+
+**Inbox** (Projects sense):
+The open task/note Log Entries with no Project assigned yet — the
+bullet-journal capture queue awaiting triage into a Project. It is **global**:
+the same Inbox appears on the Projects index page and on every Project's
+Board, since triaging an Inbox item is what gives it a Project.
+_Avoid_: unsorted, backlog (Backlog is Project-scoped; Inbox is not)
+
+**Backlog**:
+A Project's open Log Entries that have been accepted into the Project but not
+yet assigned to a Sprint.
+
+**Board**:
+The per-Project view: Inbox, Backlog, then one column per Sprint (left→right
+by Sprint `position`), each holding its Log Entries. Cards move between
+columns by drag-and-drop; within a column they're ordered by **Board
+position**.
+_Avoid_: board view, kanban
+
+**Board position**:
+The order of Log Entry cards within one Board column (Inbox, a Project's
+Backlog, or a Sprint). A distinct concept from a Log Entry's day-timeline
+`position` — reordering a Board column never touches day-timeline order, and
+vice versa.
