@@ -4,6 +4,7 @@ import { supabase } from '../supabase'
 import type {
   Block,
   BlockLogRow,
+  BoardMove,
   Cat,
   Day,
   Habit,
@@ -19,6 +20,7 @@ import type {
   Trace,
 } from '../planner'
 import {
+  applyBoardMove,
   blockLogRowsFromEntries,
   doneBlockMap,
   dowOfIso,
@@ -266,6 +268,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     projectId: e.project_id,
     sprintId: e.sprint_id,
     position: e.position,
+    boardPosition: e.board_position,
     durMin: e.dur_min,
     deep: e.deep,
     startMin: e.start_min,
@@ -444,6 +447,7 @@ export interface PlannerActions {
         | 'durMin'
         | 'startMin'
         | 'anchored'
+        | 'boardPosition'
       >
     >,
   ): Promise<void>
@@ -454,6 +458,11 @@ export interface PlannerActions {
   /** Re-number a day's on-timeline Log Entries to match the given id order
    *  (drag reorder on the "Today's plan" timeline). */
   reorderLogEntries(dateIso: string, orderedIds: string[]): Promise<void>
+  /** A Board drag (#26): move card `move.id` between/within Inbox, `projectId`'s
+   *  Backlog, or one of its Sprints, via `applyBoardMove`. Covers cross-column
+   *  moves (project/sprint assignment, note->task promotion) and in-column
+   *  reorders (Board-position renumbering) with the same call. */
+  moveBoardEntry(projectId: string, move: BoardMove): Promise<void>
   addProject(name: string): Promise<string>
   updateProject(id: string, fields: Partial<Pick<Project, 'name' | 'goal' | 'status'>>): Promise<void>
   deleteProject(id: string): Promise<void>
@@ -954,6 +963,12 @@ export function usePlannerActions(userId: string): PlannerActions {
       // Append after the last entry already on that day.
       const onDay = (cache?.logEntries ?? []).filter((e) => e.onDate === entry.onDate)
       const position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
+      // Append to the end of whichever Board column this entry lands in
+      // (#26) — Inbox, a Project's Backlog, or a Sprint.
+      const boardColumn = (cache?.logEntries ?? []).filter(
+        (e) => e.projectId === (entry.projectId ?? null) && e.sprintId === (entry.sprintId ?? null),
+      )
+      const boardPosition = boardColumn.reduce((m, e) => Math.max(m, e.boardPosition + 1), 0)
       // Rapid-log picks a Bucket; `cat` is stamped from it (ADR-0003). A null
       // bucket keeps the passed cat (or `open` = Unassigned).
       const bucket = entry.bucketId ? cache?.buckets.find((bk) => bk.id === entry.bucketId) : undefined
@@ -975,6 +990,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           start_min: entry.startMin ?? null,
           anchored: entry.anchored ?? false,
           position,
+          board_position: boardPosition,
         })
         .select('id')
         .single()
@@ -1006,6 +1022,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.durMin !== undefined && { dur_min: fields.durMin }),
           ...(fields.startMin !== undefined && { start_min: fields.startMin }),
           ...(fields.anchored !== undefined && { anchored: fields.anchored }),
+          ...(fields.boardPosition !== undefined && { board_position: fields.boardPosition }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -1049,6 +1066,45 @@ export function usePlannerActions(userId: string): PlannerActions {
       })
       const results = await Promise.all(
         renumbered.map(({ id, position }) => supabase.from('log_entries').update({ position }).eq('id', id)),
+      )
+      const failed = results.find((r) => r.error)
+      if (failed) {
+        invalidate()
+        throw failed.error
+      }
+      await invalidate()
+    },
+
+    /** A Board drag (#26): move a card between/within Inbox, a Project's
+     *  Backlog, or one of its Sprints, via the pure `applyBoardMove`. */
+    async moveBoardEntry(projectId: string, move: BoardMove) {
+      const cache = qc.getQueryData<PlannerData>(plannerKey)
+      if (!cache) return
+      const updates = applyBoardMove(cache.logEntries, projectId, move)
+      if (updates.length === 0) return
+      patch((data) => {
+        const byId = new Map(updates.map((u) => [u.id, u]))
+        return {
+          ...data,
+          logEntries: data.logEntries.map((e) => {
+            const u = byId.get(e.id)
+            return u ? { ...e, ...u.fields } : e
+          }),
+        }
+      })
+      const results = await Promise.all(
+        updates.map(({ id, fields }) =>
+          supabase
+            .from('log_entries')
+            .update({
+              ...(fields.projectId !== undefined && { project_id: fields.projectId }),
+              ...(fields.sprintId !== undefined && { sprint_id: fields.sprintId }),
+              ...(fields.kind !== undefined && { kind: fields.kind }),
+              ...(fields.boardPosition !== undefined && { board_position: fields.boardPosition }),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', id),
+        ),
       )
       const failed = results.find((r) => r.error)
       if (failed) {

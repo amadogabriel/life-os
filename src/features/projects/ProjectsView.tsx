@@ -1,4 +1,16 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import {
+  DndContext,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
 import {
@@ -30,6 +42,18 @@ const STATUS_COLOR: Record<string, string> = {
   archived: 'var(--ink-faint)',
 }
 
+// Column collapse (#26): local-only, per-browser — keyed per column occurrence
+// so two Projects' Backlog columns (both keyed 'backlog' in Board-move terms)
+// don't collide. Inbox is global (same key everywhere), matching its data.
+const COLLAPSE_KEY = 'life-os-board-collapsed-v1'
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
 const StatusPill = ({ status, onClick }: { status: string; onClick?: () => void }) => (
   <button
     className="text-[10px] uppercase tracking-[0.08em]"
@@ -49,16 +73,161 @@ const StatusPill = ({ status, onClick }: { status: string; onClick?: () => void 
   </button>
 )
 
+// Hoisted to a stable top-level component (#26 prerequisite): previously
+// defined inside ProjectsView's body, so every re-render (e.g. typing into
+// the add-task draft state) minted a new component identity, forcing React
+// to unmount/remount the whole column subtree — which is why the Backlog
+// "+ add task…" input lost focus after every keystroke.
+function EntryCard({
+  e,
+  entryStyle,
+  onToggleDone,
+  onDelete,
+}: {
+  e: LogEntry
+  entryStyle: (e: LogEntry) => Record<string, string> | undefined
+  onToggleDone: (e: LogEntry) => void
+  onDelete: (id: string) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: e.id })
+  const done = e.state === 'done'
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className="flex touch-none items-center gap-2 rounded-md border px-2 py-1.5"
+      style={{
+        borderColor: 'var(--line-soft)',
+        background: 'var(--paper)',
+        ...entryStyle(e),
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+        cursor: 'grab',
+      }}
+    >
+      {e.kind === 'task' ? (
+        <button
+          className="bullet"
+          title="Toggle done"
+          onPointerDown={(ev) => ev.stopPropagation()}
+          onClick={() => onToggleDone(e)}
+          style={{ border: 0, background: 'transparent', cursor: 'pointer', fontFamily: 'var(--mono)', width: 16 }}
+        >
+          {bullet(e.kind, e.state)}
+        </button>
+      ) : (
+        <span className="bullet" style={{ fontFamily: 'var(--mono)', width: 16, color: 'var(--ink-faint)' }}>
+          {bullet(e.kind, e.state)}
+        </span>
+      )}
+      <span
+        className="flex-1 text-[13px]"
+        style={done ? { textDecoration: 'line-through', color: 'var(--ink-faint)' } : undefined}
+      >
+        {e.text}
+      </span>
+      <button className="x" title="Delete" onPointerDown={(ev) => ev.stopPropagation()} onClick={() => onDelete(e.id)}>
+        ✕
+      </button>
+    </div>
+  )
+}
+
+// Hoisted alongside EntryCard for the same reason. Droppable (so an empty
+// column, or dropping past the last card, still registers) and a Sortable
+// list host for its cards; collapses to a thin name+count strip on click.
+function Column({
+  id,
+  title,
+  extra,
+  collapsed,
+  onToggleCollapse,
+  itemIds,
+  children,
+}: {
+  id: string
+  title: string
+  extra?: ReactNode
+  collapsed: boolean
+  onToggleCollapse: () => void
+  itemIds: string[]
+  children: ReactNode
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id })
+
+  if (collapsed) {
+    return (
+      <button
+        ref={setNodeRef}
+        className="flex w-9 flex-none flex-col items-center gap-1 rounded-xl border py-2"
+        style={{ background: isOver ? 'var(--paper)' : 'var(--card)', borderColor: isOver ? 'var(--accent)' : 'var(--line)' }}
+        title={`Expand ${title}`}
+        onClick={onToggleCollapse}
+      >
+        <span style={{ writingMode: 'vertical-rl', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-faint)' }}>
+          {title}
+        </span>
+      </button>
+    )
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      className="flex w-[260px] flex-none flex-col gap-1.5 rounded-xl border p-2"
+      style={{ background: 'var(--card)', borderColor: isOver ? 'var(--accent)' : 'var(--line)' }}
+    >
+      <div className="flex items-center justify-between px-1 pb-1">
+        <span className="text-[11px] uppercase tracking-[0.09em]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}>
+          {title}
+        </span>
+        <span className="flex items-center gap-1">
+          {extra}
+          <button
+            className="btn ghost sm"
+            style={{ minWidth: 20, minHeight: 20, padding: 0, fontSize: 11 }}
+            title="Collapse column"
+            onClick={onToggleCollapse}
+          >
+            «
+          </button>
+        </span>
+      </div>
+      <SortableContext id={id} items={itemIds} strategy={verticalListSortingStrategy}>
+        {children}
+      </SortableContext>
+    </div>
+  )
+}
+
 export function ProjectsView({ data, actions, today }: ViewProps) {
   const [sel, setSel] = useState<string | null>(null)
   const [pName, setPName] = useState('')
   const [sName, setSName] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [wkOff, setWkOff] = useState(0) // Sprint work card's week pager (0 = this week)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => loadCollapsed())
   // Log Entries recolor LIVE through their Bucket (#18).
   const entryStyle = (e: LogEntry) => stripeVar(blockStyle({ bucketId: e.bucketId, cat: e.cat }, data.buckets))
   const todayDate = manilaDate(today)
   const todayIso = isoDate(todayDate)
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  )
+
+  function toggleCollapse(key: string) {
+    setCollapsed((c) => {
+      const next = { ...c, [key]: !c[key] }
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next))
+      return next
+    })
+  }
+  const onToggleDone = (e: LogEntry) => actions.updateLogEntry(e.id, { state: e.state === 'done' ? 'open' : 'done' })
+  const onDelete = (id: string) => actions.deleteLogEntry(id)
 
   const projects = [...data.projects].sort((a, b) => a.position - b.position)
   const project = projects.find((p) => p.id === sel) ?? null
@@ -67,9 +236,10 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
     : []
 
   // The bullet-journal inbox: open tasks/notes not yet processed into a project.
+  // Ordered by Board position (#26) — its own column order, global across boards.
   const inbox = data.logEntries
     .filter((e) => (e.kind === 'task' || e.kind === 'note') && e.state === 'open' && !e.projectId)
-    .sort((a, b) => a.onDate.localeCompare(b.onDate))
+    .sort((a, b) => a.boardPosition - b.boardPosition)
 
   // Sprint work: open active-sprint tasks not yet placed on a day. The moment
   // a day is picked (a dated one-off — on_date + start_min) the task leaves
@@ -98,14 +268,6 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
     setSName('')
     await actions.addSprint(project.id, n)
   }
-  function moveEntry(e: LogEntry, dest: string) {
-    if (!project) return
-    if (dest === 'inbox') return void actions.updateLogEntry(e.id, { projectId: null, sprintId: null })
-    const sprintId = dest === 'backlog' ? null : dest
-    const fields: Parameters<typeof actions.updateLogEntry>[1] = { projectId: project.id, sprintId }
-    if (e.kind === 'note') fields.kind = 'task' // processing a note into a project makes it a task
-    actions.updateLogEntry(e.id, fields)
-  }
 
   async function addTask(key: string, sprintId: string | null) {
     const text = (drafts[key] ?? '').trim()
@@ -127,214 +289,175 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
   const countFor = (p: Project) => data.logEntries.filter((e) => e.projectId === p.id).length
   const sprintCountFor = (p: Project) => data.sprints.filter((s) => s.projectId === p.id).length
 
-  function EntryCard({ e, here }: { e: LogEntry; here: string }) {
-    const done = e.state === 'done'
-    return (
-      <div
-        className="flex items-center gap-2 rounded-md border px-2 py-1.5"
-        style={{ borderColor: 'var(--line-soft)', background: 'var(--paper)', ...entryStyle(e) }}
-      >
-        {e.kind === 'task' ? (
-          <button
-            className="bullet"
-            title="Toggle done"
-            onClick={() => actions.updateLogEntry(e.id, { state: done ? 'open' : 'done' })}
-            style={{ border: 0, background: 'transparent', cursor: 'pointer', fontFamily: 'var(--mono)', width: 16 }}
-          >
-            {bullet(e.kind, e.state)}
-          </button>
-        ) : (
-          <span className="bullet" style={{ fontFamily: 'var(--mono)', width: 16, color: 'var(--ink-faint)' }}>
-            {bullet(e.kind, e.state)}
-          </span>
-        )}
-        <span
-          className="flex-1 text-[13px]"
-          style={done ? { textDecoration: 'line-through', color: 'var(--ink-faint)' } : undefined}
-        >
-          {e.text}
-        </span>
-        <select
-          className="qi"
-          value={here}
-          onChange={(ev) => moveEntry(e, ev.target.value)}
-          style={{ padding: '2px 4px', fontSize: 11 }}
-          title="Move"
-        >
-          <option value="inbox">Inbox</option>
-          {project && <option value="backlog">Backlog</option>}
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <button className="x" title="Delete" onClick={() => actions.deleteLogEntry(e.id)}>
-          ✕
-        </button>
-      </div>
-    )
-  }
-
-  const Column = ({ title, extra, children }: { title: string; extra?: React.ReactNode; children: React.ReactNode }) => (
-    <div
-      className="flex w-[260px] flex-none flex-col gap-1.5 rounded-xl border p-2"
-      style={{ background: 'var(--card)', borderColor: 'var(--line)' }}
-    >
-      <div className="flex items-center justify-between px-1 pb-1">
-        <span className="text-[11px] uppercase tracking-[0.09em]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}>
-          {title}
-        </span>
-        {extra}
-      </div>
-      {children}
-    </div>
-  )
-
   // ---------- project list ----------
   if (!project) {
+    // Inbox rows are draggable here too — dropping one on a Project tile
+    // files it into that Project's Backlog (index-page filing, #26); dropping
+    // it on another Inbox row instead just reorders the shared global Inbox.
+    function handleIndexDragEnd(evt: DragEndEvent) {
+      const { active, over } = evt
+      if (!over) return
+      const activeId = String(active.id)
+      const overId = String(over.id)
+      if (data.projects.some((p) => p.id === overId)) {
+        // Append to the end of the TARGET project's own Backlog, not the
+        // (unrelated-length) global Inbox list this row is dragged from.
+        const targetBacklogLength = data.logEntries.filter((e) => e.projectId === overId && !e.sprintId).length
+        actions.moveBoardEntry(overId, { id: activeId, dest: 'backlog', index: targetBacklogLength })
+        return
+      }
+      const destIds = inbox.map((e) => e.id).filter((id) => id !== activeId)
+      let index = destIds.indexOf(overId)
+      if (index === -1) index = destIds.length
+      // Inbox is global — projectId is unused when dest is 'inbox' (applyBoardMove).
+      actions.moveBoardEntry('', { id: activeId, dest: 'inbox', index })
+    }
+
     return (
-      <div>
-        <div className="view-head mb-[18px]">
-          <h2>Projects</h2>
-          <p>Process brain-dump notes into sprints — from planning to project end.</p>
-        </div>
-        <div className="mb-4 flex gap-1.5">
-          <input
-            className="qi flex-1 max-w-[320px]"
-            placeholder="New project…"
-            maxLength={120}
-            value={pName}
-            onChange={(e) => setPName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addProject()}
-          />
-          <button className="btn ghost sm" onClick={addProject}>
-            ＋ Project
-          </button>
-        </div>
-        {projects.length === 0 && <div className="hint px-0">No projects yet — create one, then pull notes in from the inbox.</div>}
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-          {projects.map((p) => (
-            <button
-              key={p.id}
-              className="rounded-xl border p-4 text-left"
-              style={{ background: 'var(--card)', borderColor: 'var(--line)' }}
-              onClick={() => setSel(p.id)}
-            >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-[15px] font-semibold" style={{ fontFamily: 'var(--serif)' }}>
-                  {p.name}
-                </span>
-                <StatusPill status={p.status} />
-              </div>
-              <div className="text-[12px]" style={{ color: 'var(--ink-faint)', fontFamily: 'var(--mono)' }}>
-                {sprintCountFor(p)} sprints · {countFor(p)} tasks
-              </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleIndexDragEnd}>
+        <div>
+          <div className="view-head mb-[18px]">
+            <h2>Projects</h2>
+            <p>Process brain-dump notes into sprints — from planning to project end.</p>
+          </div>
+          <div className="mb-4 flex gap-1.5">
+            <input
+              className="qi flex-1 max-w-[320px]"
+              placeholder="New project…"
+              maxLength={120}
+              value={pName}
+              onChange={(e) => setPName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addProject()}
+            />
+            <button className="btn ghost sm" onClick={addProject}>
+              ＋ Project
             </button>
-          ))}
-        </div>
+          </div>
+          {projects.length === 0 && <div className="hint px-0">No projects yet — create one, then pull notes in from the inbox.</div>}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+            {projects.map((p) => (
+              <ProjectTile key={p.id} project={p} sprintCount={sprintCountFor(p)} taskCount={countFor(p)} onOpen={() => setSel(p.id)} />
+            ))}
+          </div>
 
-        {sprintTasks.length > 0 && (
-          <>
-            <div className="subhead">Sprint work — plan into your week</div>
-            <div className="overflow-hidden rounded-xl border" style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
-              <div className="flex items-center justify-end gap-1 px-2 pt-1.5">
-                <button
-                  className="btn ghost sm"
-                  style={{ minWidth: 32, minHeight: 32 }}
-                  aria-label="Previous week"
-                  title="Previous week"
-                  disabled={wkOff === 0}
-                  onClick={() => setWkOff((o) => Math.max(0, o - 1))}
-                >
-                  ‹
-                </button>
-                <span
-                  className="text-[11px]"
-                  style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)', minWidth: 64, textAlign: 'center' }}
-                >
-                  {wkLabel}
-                </span>
-                <button
-                  className="btn ghost sm"
-                  style={{ minWidth: 32, minHeight: 32 }}
-                  aria-label="Next week"
-                  title="Next week"
-                  onClick={() => setWkOff((o) => o + 1)}
-                >
-                  ›
-                </button>
-              </div>
-              {sprintTasks.map((e) => {
-                const sp = e.sprintId ? sprintById.get(e.sprintId) : undefined
-                const pr = sp ? projectById.get(sp.projectId) : undefined
-                return (
-                  <div key={e.id} className="litem flex-wrap" style={entryStyle(e)}>
-                    <span className="txt">
-                      {e.text}
-                      {(pr || sp) && (
-                        <span style={{ color: 'var(--ink-faint)', fontSize: 11, marginLeft: 6 }}>
-                          {pr?.name}
-                          {sp ? ` · ${sp.name}` : ''}
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex gap-0.5">
-                      {DOW.map((d, i) => {
-                        const dayIso = isoDate(week[i])
-                        return (
-                          <button
-                            key={i}
-                            className="btn ghost sm"
-                            style={{ minWidth: 26, padding: '3px 5px' }}
-                            title={`Schedule ${d} ${week[i].getDate()}`}
-                            disabled={dayIso < todayIso}
-                            onClick={() => actions.scheduleEntryToDate(e.id, dayIso)}
-                          >
-                            {d[0]}
-                          </button>
-                        )
-                      })}
-                    </span>
-                    <button className="chk" role="checkbox" aria-checked={false} title="Mark done" onClick={() => actions.updateLogEntry(e.id, { state: 'done' })}>
-                      <Check />
-                    </button>
-                  </div>
-                )
-              })}
-              <div className="hint">Tap a day (‹ › pages weeks) to schedule it there — the task moves to that day's Planner column.</div>
-            </div>
-          </>
-        )}
-
-        {inbox.length > 0 && (
-          <>
-            <div className="subhead">Inbox · {inbox.length} unprocessed</div>
-            <div className="flex flex-col gap-1.5">
-              {inbox.map((e) => (
-                <div
-                  key={e.id}
-                  className="flex items-center gap-2 rounded-md border px-2 py-1.5"
-                  style={{ borderColor: 'var(--line-soft)', background: 'var(--paper)', ...entryStyle(e) }}
-                >
-                  <span className="bullet" style={{ fontFamily: 'var(--mono)', width: 16, color: 'var(--ink-faint)' }}>
-                    {bullet(e.kind, e.state)}
+          {sprintTasks.length > 0 && (
+            <>
+              <div className="subhead">Sprint work — plan into your week</div>
+              <div className="overflow-hidden rounded-xl border" style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
+                <div className="flex items-center justify-end gap-1 px-2 pt-1.5">
+                  <button
+                    className="btn ghost sm"
+                    style={{ minWidth: 32, minHeight: 32 }}
+                    aria-label="Previous week"
+                    title="Previous week"
+                    disabled={wkOff === 0}
+                    onClick={() => setWkOff((o) => Math.max(0, o - 1))}
+                  >
+                    ‹
+                  </button>
+                  <span
+                    className="text-[11px]"
+                    style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)', minWidth: 64, textAlign: 'center' }}
+                  >
+                    {wkLabel}
                   </span>
-                  <span className="flex-1 text-[13px]">{e.text}</span>
-                  <span className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
-                    open a project to file →
-                  </span>
+                  <button
+                    className="btn ghost sm"
+                    style={{ minWidth: 32, minHeight: 32 }}
+                    aria-label="Next week"
+                    title="Next week"
+                    onClick={() => setWkOff((o) => o + 1)}
+                  >
+                    ›
+                  </button>
                 </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+                {sprintTasks.map((e) => {
+                  const sp = e.sprintId ? sprintById.get(e.sprintId) : undefined
+                  const pr = sp ? projectById.get(sp.projectId) : undefined
+                  return (
+                    <div key={e.id} className="litem flex-wrap" style={entryStyle(e)}>
+                      <span className="txt">
+                        {e.text}
+                        {(pr || sp) && (
+                          <span style={{ color: 'var(--ink-faint)', fontSize: 11, marginLeft: 6 }}>
+                            {pr?.name}
+                            {sp ? ` · ${sp.name}` : ''}
+                          </span>
+                        )}
+                      </span>
+                      <span className="flex gap-0.5">
+                        {DOW.map((d, i) => {
+                          const dayIso = isoDate(week[i])
+                          return (
+                            <button
+                              key={i}
+                              className="btn ghost sm"
+                              style={{ minWidth: 26, padding: '3px 5px' }}
+                              title={`Schedule ${d} ${week[i].getDate()}`}
+                              disabled={dayIso < todayIso}
+                              onClick={() => actions.scheduleEntryToDate(e.id, dayIso)}
+                            >
+                              {d[0]}
+                            </button>
+                          )
+                        })}
+                      </span>
+                      <button className="chk" role="checkbox" aria-checked={false} title="Mark done" onClick={() => actions.updateLogEntry(e.id, { state: 'done' })}>
+                        <Check />
+                      </button>
+                    </div>
+                  )
+                })}
+                <div className="hint">Tap a day (‹ › pages weeks) to schedule it there — the task moves to that day's Planner column.</div>
+              </div>
+            </>
+          )}
+
+          {inbox.length > 0 && (
+            <>
+              <div className="subhead">Inbox · {inbox.length} unprocessed</div>
+              <SortableContext id="index-inbox" items={inbox.map((e) => e.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex flex-col gap-1.5">
+                  {inbox.map((e) => (
+                    <IndexInboxRow key={e.id} e={e} entryStyle={entryStyle} />
+                  ))}
+                </div>
+              </SortableContext>
+            </>
+          )}
+        </div>
+      </DndContext>
     )
   }
 
   // ---------- project board ----------
-  const backlog = data.logEntries.filter((e) => e.projectId === project.id && !e.sprintId)
+  const backlog = data.logEntries
+    .filter((e) => e.projectId === project.id && !e.sprintId)
+    .sort((a, b) => a.boardPosition - b.boardPosition)
+  const tasksBySprint = new Map(
+    sprints.map((s) => [
+      s.id,
+      data.logEntries.filter((e) => e.sprintId === s.id).sort((a, b) => a.boardPosition - b.boardPosition),
+    ]),
+  )
+
+  function handleBoardDragEnd(evt: DragEndEvent) {
+    const { active, over } = evt
+    if (!over || !project) return
+    const activeId = String(active.id)
+    const overId = String(over.id)
+    const sortableData = over.data.current as { sortable?: { containerId: string } } | undefined
+    const dest = sortableData?.sortable?.containerId ?? overId
+    if (dest !== 'inbox' && dest !== 'backlog' && !sprints.some((s) => s.id === dest)) return
+
+    const columnItems =
+      dest === 'inbox' ? inbox : dest === 'backlog' ? backlog : (tasksBySprint.get(dest) ?? [])
+    const destIds = columnItems.map((e) => e.id).filter((id) => id !== activeId)
+    let index = destIds.indexOf(overId)
+    if (index === -1) index = destIds.length
+    actions.moveBoardEntry(project.id, { id: activeId, dest, index })
+  }
+
   return (
     <div>
       <div className="view-head mb-[14px] flex flex-wrap items-baseline gap-[14px]">
@@ -358,55 +481,138 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
         </button>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        <Column title={`Inbox · ${inbox.length}`}>
-          {inbox.length === 0 && <div className="hint p-1">Empty — nothing to process.</div>}
-          {inbox.map((e) => (
-            <EntryCard key={e.id} e={e} here="inbox" />
-          ))}
-        </Column>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleBoardDragEnd}>
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          <Column
+            id="inbox"
+            title={`Inbox · ${inbox.length}`}
+            collapsed={!!collapsed['inbox']}
+            onToggleCollapse={() => toggleCollapse('inbox')}
+            itemIds={inbox.map((e) => e.id)}
+          >
+            {inbox.length === 0 && <div className="hint p-1">Empty — nothing to process.</div>}
+            {inbox.map((e) => (
+              <EntryCard key={e.id} e={e} entryStyle={entryStyle} onToggleDone={onToggleDone} onDelete={onDelete} />
+            ))}
+          </Column>
 
-        <Column title={`Backlog · ${backlog.length}`}>
-          {backlog.map((e) => (
-            <EntryCard key={e.id} e={e} here="backlog" />
-          ))}
-          {addRow('backlog', null)}
-        </Column>
+          <Column
+            id="backlog"
+            title={`Backlog · ${backlog.length}`}
+            collapsed={!!collapsed[`${project.id}:backlog`]}
+            onToggleCollapse={() => toggleCollapse(`${project.id}:backlog`)}
+            itemIds={backlog.map((e) => e.id)}
+          >
+            {backlog.map((e) => (
+              <EntryCard key={e.id} e={e} entryStyle={entryStyle} onToggleDone={onToggleDone} onDelete={onDelete} />
+            ))}
+            {addRow('backlog', null)}
+          </Column>
 
-        {sprints.map((s) => {
-          const tasks = data.logEntries.filter((e) => e.sprintId === s.id)
-          const done = tasks.filter((e) => e.state === 'done').length
-          return (
-            <Column
-              key={s.id}
-              title={`${s.name} · ${done}/${tasks.length}`}
-              extra={<StatusPill status={s.status} onClick={() => actions.updateSprint(s.id, { status: SPRINT_NEXT[s.status] })} />}
-            >
-              {tasks.map((e) => (
-                <EntryCard key={e.id} e={e} here={s.id} />
-              ))}
-              {addRow(s.id, s.id)}
-            </Column>
-          )
-        })}
+          {sprints.map((s) => {
+            const tasks = tasksBySprint.get(s.id) ?? []
+            const done = tasks.filter((e) => e.state === 'done').length
+            return (
+              <Column
+                key={s.id}
+                id={s.id}
+                title={`${s.name} · ${done}/${tasks.length}`}
+                extra={<StatusPill status={s.status} onClick={() => actions.updateSprint(s.id, { status: SPRINT_NEXT[s.status] })} />}
+                collapsed={!!collapsed[`${project.id}:${s.id}`]}
+                onToggleCollapse={() => toggleCollapse(`${project.id}:${s.id}`)}
+                itemIds={tasks.map((e) => e.id)}
+              >
+                {tasks.map((e) => (
+                  <EntryCard key={e.id} e={e} entryStyle={entryStyle} onToggleDone={onToggleDone} onDelete={onDelete} />
+                ))}
+                {addRow(s.id, s.id)}
+              </Column>
+            )
+          })}
 
-        <div className="flex w-[220px] flex-none flex-col gap-1.5">
-          <div className="flex gap-1.5">
-            <input
-              className="qi flex-1"
-              placeholder="New sprint…"
-              maxLength={80}
-              value={sName}
-              onChange={(e) => setSName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addSprint()}
-            />
-            <button className="btn ghost sm" onClick={addSprint}>
-              ＋
-            </button>
+          <div className="flex w-[220px] flex-none flex-col gap-1.5">
+            <div className="flex gap-1.5">
+              <input
+                className="qi flex-1"
+                placeholder="New sprint…"
+                maxLength={80}
+                value={sName}
+                onChange={(e) => setSName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addSprint()}
+              />
+              <button className="btn ghost sm" onClick={addSprint}>
+                ＋
+              </button>
+            </div>
+            <div className="hint p-0">Add sprints left→right in the order you'll run them.</div>
           </div>
-          <div className="hint p-0">Add sprints left→right in the order you'll run them.</div>
         </div>
+      </DndContext>
+    </div>
+  )
+}
+
+// A Project tile on the index page — also a drop target for filing an Inbox
+// row directly into its Backlog (#26).
+function ProjectTile({
+  project,
+  sprintCount,
+  taskCount,
+  onOpen,
+}: {
+  project: Project
+  sprintCount: number
+  taskCount: number
+  onOpen: () => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: project.id })
+  return (
+    <button
+      ref={setNodeRef}
+      className="rounded-xl border p-4 text-left"
+      style={{ background: 'var(--card)', borderColor: isOver ? 'var(--accent)' : 'var(--line)' }}
+      onClick={onOpen}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[15px] font-semibold" style={{ fontFamily: 'var(--serif)' }}>
+          {project.name}
+        </span>
+        <StatusPill status={project.status} />
       </div>
+      <div className="text-[12px]" style={{ color: 'var(--ink-faint)', fontFamily: 'var(--mono)' }}>
+        {sprintCount} sprints · {taskCount} tasks
+      </div>
+    </button>
+  )
+}
+
+// An Inbox row on the Projects index page — draggable onto a Project tile to
+// file it (#26); dropping it doesn't reorder anything on this page itself.
+function IndexInboxRow({ e, entryStyle }: { e: LogEntry; entryStyle: (e: LogEntry) => Record<string, string> | undefined }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: e.id })
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className="flex touch-none items-center gap-2 rounded-md border px-2 py-1.5"
+      style={{
+        borderColor: 'var(--line-soft)',
+        background: 'var(--paper)',
+        ...entryStyle(e),
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+        cursor: 'grab',
+      }}
+    >
+      <span className="bullet" style={{ fontFamily: 'var(--mono)', width: 16, color: 'var(--ink-faint)' }}>
+        {bullet(e.kind, e.state)}
+      </span>
+      <span className="flex-1 text-[13px]">{e.text}</span>
+      <span className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+        drag onto a project, or open one to file →
+      </span>
     </div>
   )
 }

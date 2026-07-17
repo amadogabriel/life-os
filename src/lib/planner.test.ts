@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyBoardMove,
   blockLogRowsFromEntries,
   blockStyle,
   bucketIdForCat,
@@ -437,6 +438,7 @@ const entry = (over: Partial<LogEntry>): LogEntry => ({
   projectId: null,
   sprintId: null,
   position: 0,
+  boardPosition: 0,
   durMin: null,
   deep: false,
   startMin: null,
@@ -1045,6 +1047,81 @@ describe('reorderWithinSlots', () => {
   it('is a no-op when the order is unchanged', () => {
     const items = ['a', 'b', 'c'].map((id) => ({ id }))
     expect(reorderWithinSlots(items, ['a', 'b', 'c']).map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('applyBoardMove — Board drag-and-drop (#26)', () => {
+  const inboxTask = (over: Partial<LogEntry>) => entry({ id: 'moved', kind: 'task', ...over })
+
+  it('moves a card from Inbox into a Backlog, assigning the project and clearing sprint', () => {
+    const entries = [inboxTask({})]
+    const updates = applyBoardMove(entries, 'p1', { id: 'moved', dest: 'backlog', index: 0 })
+    expect(updates).toEqual([{ id: 'moved', fields: { projectId: 'p1', sprintId: null, boardPosition: 0 } }])
+  })
+
+  it('moves a card into a Sprint, assigning both project and sprint', () => {
+    const entries = [inboxTask({})]
+    const updates = applyBoardMove(entries, 'p1', { id: 'moved', dest: 's1', index: 0 })
+    expect(updates).toEqual([{ id: 'moved', fields: { projectId: 'p1', sprintId: 's1', boardPosition: 0 } }])
+  })
+
+  it('moves a card back to Inbox, clearing both project and sprint', () => {
+    const entries = [inboxTask({ projectId: 'p1', sprintId: 's1', boardPosition: 3 })]
+    const updates = applyBoardMove(entries, 'p1', { id: 'moved', dest: 'inbox', index: 0 })
+    expect(updates).toEqual([{ id: 'moved', fields: { projectId: null, sprintId: null, boardPosition: 0 } }])
+  })
+
+  it('promotes a note to a task when filed into a Backlog', () => {
+    const entries = [inboxTask({ kind: 'note' })]
+    const updates = applyBoardMove(entries, 'p1', { id: 'moved', dest: 'backlog', index: 0 })
+    expect(updates[0].fields.kind).toBe('task')
+  })
+
+  it('promotes a note to a task when filed into a Sprint', () => {
+    const entries = [inboxTask({ kind: 'note' })]
+    const updates = applyBoardMove(entries, 'p1', { id: 'moved', dest: 's1', index: 0 })
+    expect(updates[0].fields.kind).toBe('task')
+  })
+
+  it('does NOT promote a note moved back to Inbox', () => {
+    const entries = [inboxTask({ kind: 'note', projectId: 'p1', sprintId: null })]
+    const updates = applyBoardMove(entries, 'p1', { id: 'moved', dest: 'inbox', index: 0 })
+    expect(updates[0].fields.kind).toBeUndefined()
+  })
+
+  it('reorders within a column, renumbering only that column\'s members', () => {
+    const entries = [
+      inboxTask({ id: 'a', projectId: 'p1', sprintId: null, boardPosition: 0 }),
+      inboxTask({ id: 'b', projectId: 'p1', sprintId: null, boardPosition: 1 }),
+      inboxTask({ id: 'moved', projectId: 'p1', sprintId: null, boardPosition: 2 }),
+      // A same-project Sprint card and a different-project Backlog card share
+      // no column with the above — must come back untouched (not in updates).
+      inboxTask({ id: 'sprint-card', projectId: 'p1', sprintId: 's1', boardPosition: 0 }),
+      inboxTask({ id: 'other-project', projectId: 'p2', sprintId: null, boardPosition: 0 }),
+    ]
+    const updates = applyBoardMove(entries, 'p1', { id: 'moved', dest: 'backlog', index: 0 })
+    expect(updates).toEqual([
+      { id: 'moved', fields: { projectId: 'p1', sprintId: null, boardPosition: 0 } },
+      { id: 'a', fields: { boardPosition: 1 } },
+      { id: 'b', fields: { boardPosition: 2 } },
+    ])
+    expect(updates.some((u) => u.id === 'sprint-card' || u.id === 'other-project')).toBe(false)
+  })
+
+  it('assigns a sane trailing Board position when moving into a populated column', () => {
+    const entries = [
+      inboxTask({ id: 'a', projectId: 'p1', sprintId: 's1', boardPosition: 0 }),
+      inboxTask({ id: 'b', projectId: 'p1', sprintId: 's1', boardPosition: 1 }),
+      inboxTask({ id: 'moved' }),
+    ]
+    const updates = applyBoardMove(entries, 'p1', { id: 'moved', dest: 's1', index: 2 })
+    const moved = updates.find((u) => u.id === 'moved')
+    expect(moved?.fields.boardPosition).toBe(2)
+    expect(updates).toHaveLength(3) // a, b unchanged in order but still renumbered 0,1
+  })
+
+  it('returns nothing for an unknown id', () => {
+    expect(applyBoardMove([inboxTask({})], 'p1', { id: 'nope', dest: 'backlog', index: 0 })).toEqual([])
   })
 })
 

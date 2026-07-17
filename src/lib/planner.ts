@@ -87,6 +87,11 @@ export interface LogEntry {
   projectId: string | null
   sprintId: string | null
   position: number
+  // Board card order (#26, ADR-0005): this entry's order within whichever
+  // Board column it currently sits in (global Inbox, a Project's Backlog, or
+  // a Sprint — see boardColumnKey). Distinct from `position` (day-timeline
+  // order) so reordering one view never touches the other.
+  boardPosition: number
   // Frozen from the source Block when materialized; null/false for hand-typed
   // entries. `durMin != null` marks an entry as a frozen block accomplishment.
   durMin: number | null
@@ -116,6 +121,7 @@ export function newLogEntry(over: Partial<LogEntry> & Pick<LogEntry, 'id' | 'onD
     projectId: null,
     sprintId: null,
     position: 0,
+    boardPosition: 0,
     durMin: null,
     deep: false,
     startMin: null,
@@ -1006,6 +1012,59 @@ export function reorderWithinSlots<T extends { id: string }>(dayItems: T[], orde
     if (item) result[slotIdx] = item
   })
   return result
+}
+
+// ---------- Board (#26) ----------
+
+/** A Board move: dragging card `id` to `dest` (the global Inbox, the current
+ *  Project's Backlog, or one of its Sprints by id), landing at `index` within
+ *  that column's Board-position order. Dropping back into the same column at
+ *  a new index is a plain in-column reorder. */
+export interface BoardMove {
+  id: string
+  dest: 'inbox' | 'backlog' | string
+  index: number
+}
+
+/** One entry's field updates from a Board move — either just a renumbered
+ *  `boardPosition` (an untouched column member shifting to make room) or,
+ *  for the dragged card itself, its new column assignment too. */
+export interface BoardMoveUpdate {
+  id: string
+  fields: Partial<Pick<LogEntry, 'projectId' | 'sprintId' | 'kind' | 'boardPosition'>>
+}
+
+/**
+ * Compute the Log Entry field updates for one Board move (#26) — a card
+ * dragged between or within Inbox/Backlog/Sprint columns on `projectId`'s
+ * Board. Covers both a cross-column move (project/sprint assignment, and
+ * note->task promotion, mirroring the legacy moveEntry in ProjectsView) and
+ * an in-column reorder (Board-position renumbering, in the same spirit as
+ * reorderWithinSlots) with the same call — dropping a card back into its own
+ * column just renumbers.
+ *
+ * Only returns updates for the destination column's members (post-move); any
+ * other column, including the card's former one, is left untouched.
+ */
+export function applyBoardMove(entries: LogEntry[], projectId: string, move: BoardMove): BoardMoveUpdate[] {
+  const moved = entries.find((e) => e.id === move.id)
+  if (!moved) return []
+
+  const destProjectId = move.dest === 'inbox' ? null : projectId
+  const destSprintId = move.dest === 'inbox' || move.dest === 'backlog' ? null : move.dest
+
+  const column = entries
+    .filter((e) => e.id !== move.id && e.projectId === destProjectId && e.sprintId === destSprintId)
+    .sort((a, b) => a.boardPosition - b.boardPosition)
+  const index = Math.max(0, Math.min(move.index, column.length))
+  const ordered = [...column.slice(0, index), moved, ...column.slice(index)]
+
+  return ordered.map((e, boardPosition) => {
+    if (e.id !== move.id) return { id: e.id, fields: { boardPosition } }
+    const fields: BoardMoveUpdate['fields'] = { projectId: destProjectId, sprintId: destSprintId, boardPosition }
+    if (moved.kind === 'note' && move.dest !== 'inbox') fields.kind = 'task' // processing a note into a project makes it a task
+    return { id: e.id, fields }
+  })
 }
 
 // ---------- habit streaks ----------

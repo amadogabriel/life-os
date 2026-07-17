@@ -2,8 +2,9 @@
 // layer, but the whole planner lives in localStorage. Active when no Supabase
 // env is configured — lets you run and click through the app with no project.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Block, Cat, LogEntry, LogState } from '../planner'
+import type { Block, BoardMove, Cat, LogEntry, LogState } from '../planner'
 import {
+  applyBoardMove,
   blockLogRowsFromEntries,
   bucketIdForCat,
   detachHabit,
@@ -453,6 +454,12 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) => {
         const onDay = d.logEntries.filter((e) => e.onDate === entry.onDate)
         const position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
+        // Append to the end of whichever Board column this entry lands in
+        // (#26) — Inbox, a Project's Backlog, or a Sprint.
+        const boardColumn = d.logEntries.filter(
+          (e) => e.projectId === (entry.projectId ?? null) && e.sprintId === (entry.sprintId ?? null),
+        )
+        const boardPosition = boardColumn.reduce((m, e) => Math.max(m, e.boardPosition + 1), 0)
         // Rapid-log picks a Bucket; `cat` is stamped from it (ADR-0003).
         const bucket = entry.bucketId ? d.buckets.find((bk) => bk.id === entry.bucketId) : undefined
         return {
@@ -474,6 +481,7 @@ export function useDemoActions(): PlannerActions {
               projectId: entry.projectId ?? null,
               sprintId: entry.sprintId ?? null,
               position,
+              boardPosition,
               durMin: entry.durMin ?? null,
               deep: false,
               startMin: entry.startMin ?? null,
@@ -510,6 +518,18 @@ export function useDemoActions(): PlannerActions {
         const byId = new Map(reordered.map((e) => [e.id, e]))
         return { ...d, logEntries: d.logEntries.map((e) => byId.get(e.id) ?? e) }
       }),
+    moveBoardEntry: (projectId: string, move: BoardMove) =>
+      mutate((d) => {
+        const updates = applyBoardMove(d.logEntries, projectId, move)
+        const byId = new Map(updates.map((u) => [u.id, u]))
+        return {
+          ...d,
+          logEntries: d.logEntries.map((e) => {
+            const u = byId.get(e.id)
+            return u ? { ...e, ...u.fields } : e
+          }),
+        }
+      }),
     migrateLogEntry: (id, toDate, asScheduled = false) =>
       mutate((d) => {
         const src = d.logEntries.find((e) => e.id === id)
@@ -541,6 +561,7 @@ export function useDemoActions(): PlannerActions {
               projectId: null,
               sprintId: null,
               position,
+              boardPosition: 0,
               durMin: null,
               deep: false,
               startMin: null,

@@ -394,6 +394,7 @@ export type Database = {
         Row: {
           anchored: boolean
           block_id: string | null
+          board_position: number
           bucket_id: string | null
           cat: string
           created_at: string
@@ -417,6 +418,7 @@ export type Database = {
         Insert: {
           anchored?: boolean
           block_id?: string | null
+          board_position?: number
           bucket_id?: string | null
           cat?: string
           created_at?: string
@@ -440,6 +442,7 @@ export type Database = {
         Update: {
           anchored?: boolean
           block_id?: string | null
+          board_position?: number
           bucket_id?: string | null
           cat?: string
           created_at?: string
