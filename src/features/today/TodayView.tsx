@@ -1,7 +1,24 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
-import { blockStyle, depthClass, dowMon, fmt, isoDate, materializes, onTimelineEntries, resolve, streak, stripeVar } from '../../lib/planner'
+import {
+  addDays,
+  blockStyle,
+  depthClass,
+  dowOfIso,
+  fmt,
+  fromIso,
+  frozenPastEntries,
+  isoDate,
+  longDate,
+  materializes,
+  onTimelineEntries,
+  resolve,
+  streak,
+  stripeVar,
+  type LogEntry,
+  type Resolved,
+} from '../../lib/planner'
 import { BlockModal, type EditingBlock } from '../planner/BlockModal'
 import { DayEditor } from '../planner/DayEditor'
 import { TodayEditor } from './TodayEditor'
@@ -27,13 +44,30 @@ function Card({ title, action, children }: { title: string; action?: React.React
   )
 }
 
+/** One day back/forward from an ISO date, in local calendar terms. */
+const shiftIso = (iso: string, delta: number) => isoDate(addDays(fromIso(iso), delta))
+
 export function TodayView({ data, actions, today }: ViewProps) {
-  const dow = dowMon(today)
   const todayIso = isoDate(today)
+  // The Today tab's pageable past-day view (#25): `viewedIso` drives every
+  // card on this tab. Defaults to the actual current day and resets on
+  // remount — no persistence, so reopening the app always lands on today.
+  const [viewedIso, setViewedIso] = useState(todayIso)
+  const isViewingToday = viewedIso === todayIso
+  const yesterdayIso = shiftIso(todayIso, -1)
+  const dow = dowOfIso(viewedIso)
   const day = data.days[dow]
-  const timelineEntries = onTimelineEntries(data.logEntries, todayIso)
-  const resolved = resolve(timelineEntries.map((e) => ({ ...e, startMin: e.startMin ?? 0, durMin: e.durMin ?? 30 })))
-  const hlog = data.habitLogs[todayIso] ?? {}
+
+  // Live today: the editable on-timeline lens. Any other (always past) day:
+  // the frozen-past lens with full record state — dropped/migrated included,
+  // never re-flowed (mirrors the ADR-0002 amendment; see `frozenPastEntries`).
+  const resolved: Resolved<LogEntry & { durMin: number }>[] = isViewingToday
+    ? resolve(
+        onTimelineEntries(data.logEntries, todayIso).map((e) => ({ ...e, startMin: e.startMin ?? 0, durMin: e.durMin ?? 30 })),
+      )
+    : frozenPastEntries(data.logEntries, viewedIso)
+
+  const hlog = data.habitLogs[viewedIso] ?? {}
   const blockById = new Map(data.blocksByDow.flat().map((b) => [b.id, b]))
 
   const [editingDay, setEditingDay] = useState<number | null>(null)
@@ -50,7 +84,9 @@ export function TodayView({ data, actions, today }: ViewProps) {
   const todaysHabits = data.habits.filter((h) => h.days.includes(dow))
   // Todos & brain-dump are bullet-journal log entries (shared with the Log
   // tab). `startMin == null` excludes on-timeline items (Today's plan) —
-  // otherwise a hand-added timeline entry would double-list here too.
+  // otherwise a hand-added timeline entry would double-list here too. Open
+  // todos are an undated backlog (visible regardless of the day paged to);
+  // "done" and notes are scoped to the viewed day (#25's #11).
   const openTaskEntries = data.logEntries.filter(
     (e) => e.kind === 'task' && e.state === 'open' && e.blockId === null && e.startMin == null,
   )
@@ -59,27 +95,30 @@ export function TodayView({ data, actions, today }: ViewProps) {
       e.kind === 'task' &&
       e.blockId === null &&
       e.startMin == null &&
-      (e.state === 'open' || (e.state === 'done' && e.onDate === todayIso)),
+      (e.state === 'open' || (e.state === 'done' && e.onDate === viewedIso)),
   )
-  const todayNotes = data.logEntries.filter((e) => e.kind === 'note' && e.onDate === todayIso)
+  const viewedNotes = data.logEntries.filter((e) => e.kind === 'note' && e.onDate === viewedIso)
   const deepMins = resolved.filter((r) => r.block.deep).reduce((x, r) => x + r.block.durMin, 0)
 
   const nowMin = today.getHours() * 60 + today.getMinutes()
-  const nextUp = resolved.filter((r) => r.start + r.block.durMin > nowMin && r.block.state !== 'done')[0]
+  // "Next up" only means something for the actual live day.
+  const nextUp = isViewingToday ? resolved.filter((r) => r.start + r.block.durMin > nowMin && r.block.state !== 'done')[0] : undefined
 
   async function submitTodo() {
     const t = todoText.trim()
     if (!t) return
     setTodoText('')
-    await actions.addLogEntry({ onDate: todayIso, kind: 'task', text: t })
+    await actions.addLogEntry({ onDate: viewedIso, kind: 'task', text: t })
   }
 
   async function submitDump() {
     const t = dumpText.trim()
     if (!t) return
     setDumpText('')
-    await actions.addLogEntry({ onDate: todayIso, kind: 'note', text: t })
+    await actions.addLogEntry({ onDate: viewedIso, kind: 'note', text: t })
   }
+
+  const cardTitle = isViewingToday ? 'Today' : longDate(fromIso(viewedIso)) + (viewedIso === yesterdayIso ? ' · yesterday' : '')
 
   return (
     <div>
@@ -96,7 +135,8 @@ export function TodayView({ data, actions, today }: ViewProps) {
             {day.name} · {day.loc}
           </div>
           <div className="mt-0.5 text-[12.5px]" style={{ color: 'var(--ink-soft)' }}>
-            {today.toDateString()} · {Math.round((deepMins / 60) * 10) / 10}h deep work planned
+            {longDate(fromIso(viewedIso))}
+            {isViewingToday ? ' · today' : ''} · {Math.round((deepMins / 60) * 10) / 10}h deep work planned
           </div>
         </div>
         {nextUp && (
@@ -163,7 +203,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
               ＋
             </button>
           </div>
-          {todayNotes.map((d) => (
+          {viewedNotes.map((d) => (
             <div key={d.id} className="litem">
               <span className="bullet">—</span>
               <span className="txt">{d.text}</span>
@@ -172,8 +212,8 @@ export function TodayView({ data, actions, today }: ViewProps) {
               </button>
             </div>
           ))}
-          {todayNotes.length === 0 && (
-            <div className="hint">Today's notes land here and in your Log.</div>
+          {viewedNotes.length === 0 && (
+            <div className="hint">{isViewingToday ? "Today's notes land here and in your Log." : 'No notes this day.'}</div>
           )}
         </Card>
       </div>
@@ -181,13 +221,29 @@ export function TodayView({ data, actions, today }: ViewProps) {
       {/* main: two-column plan + compact sidebar */}
       <div className="grid items-start gap-4 lg:grid-cols-[2fr_1fr] max-lg:grid-cols-1">
         <Card
-          title="Today's plan"
+          title={cardTitle}
           action={
-            <div className="flex gap-1">
-              <button className="bk-edit" title="Pull today's plan into the log again" onClick={() => actions.materializeDay(todayIso)}>
+            <div className="flex items-center gap-1">
+              <button className="btn ghost sm" onClick={() => setViewedIso(shiftIso(viewedIso, -1))}>
+                ‹ Earlier
+              </button>
+              {!isViewingToday && (
+                <button className="btn ghost sm" onClick={() => setViewedIso(todayIso)}>
+                  Today
+                </button>
+              )}
+              {!isViewingToday && (
+                <button className="btn ghost sm" onClick={() => setViewedIso(shiftIso(viewedIso, 1))}>
+                  Later ›
+                </button>
+              )}
+              <span className="mx-1" style={{ color: 'var(--line)' }}>
+                |
+              </span>
+              <button className="bk-edit" title="Pull this day's plan into the log again" onClick={() => actions.materializeDay(viewedIso)}>
                 ↻
               </button>
-              <button className="bk-edit" title="Edit today" onClick={() => setEditingToday(true)}>
+              <button className="bk-edit" title={isViewingToday ? 'Edit today' : 'Edit this day'} onClick={() => setEditingToday(true)}>
                 ✎
               </button>
             </div>
@@ -196,13 +252,14 @@ export function TodayView({ data, actions, today }: ViewProps) {
           <div style={{ columns: 2, columnGap: 0 }}>
             {resolved.map(({ block: e, start }) => {
               const checked = e.state === 'done'
+              const struck = checked || e.state === 'dropped' || e.state === 'migrated'
               // A Block-placed chip carries its habit on the Block; a chip placed
               // via the Today editor carries it on the entry itself (#24).
               const habitId = e.blockId ? blockById.get(e.blockId)?.habitId : e.habitId
               return (
                 <div
                   key={e.id}
-                  className={`citem s-${e.cat}${depthClass(e.deep)}${checked ? ' done' : ''}`}
+                  className={`citem s-${e.cat}${depthClass(e.deep)}${struck ? ' done' : ''}`}
                   style={{ ...stripeVar(blockStyle({ bucketId: e.bucketId, cat: e.cat }, data.buckets)), breakInside: 'avoid', gridTemplateColumns: '22px 46px 1fr', gap: 8, padding: '9px 12px' }}
                 >
                   <button
@@ -211,7 +268,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                     aria-checked={checked}
                     onClick={() =>
                       e.blockId
-                        ? actions.toggleBlockLog(e.blockId, todayIso)
+                        ? actions.toggleBlockLog(e.blockId, viewedIso)
                         : actions.updateLogEntry(e.id, { state: checked ? 'open' : 'done' })
                     }
                   >
@@ -220,7 +277,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                   <div className="time">{fmt(start)}</div>
                   <button
                     className="cursor-pointer border-0 bg-transparent p-0 text-left"
-                    title="Edit today's entry"
+                    title="Edit this entry"
                     onClick={() => setEditingEntryId(e.id)}
                     style={{ color: 'inherit' }}
                   >
@@ -230,6 +287,12 @@ export function TodayView({ data, actions, today }: ViewProps) {
                         <span title={`Logs habit: ${data.habits.find((h) => h.id === habitId)?.name ?? ''}`} style={{ marginLeft: 5, fontSize: 11 }}>
                           🔥
                         </span>
+                      )}
+                      {e.state === 'dropped' && (
+                        <span style={{ marginLeft: 5, fontSize: 11, color: 'var(--ink-faint)' }}>⊘ dropped</span>
+                      )}
+                      {e.state === 'migrated' && (
+                        <span style={{ marginLeft: 5, fontSize: 11, color: 'var(--ink-faint)' }}>› migrated</span>
                       )}
                     </div>
                   </button>
@@ -254,7 +317,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                     style={stripeVar(blockStyle(h, data.buckets))}
                     role="checkbox"
                     aria-checked={on}
-                    onClick={() => actions.toggleHabitLog(h.id, todayIso)}
+                    onClick={() => actions.toggleHabitLog(h.id, viewedIso)}
                   >
                     <span className="mini">
                       <Check />
@@ -312,13 +375,24 @@ export function TodayView({ data, actions, today }: ViewProps) {
       {editing && (
         <BlockModal data={data} actions={actions} editing={editing} onClose={() => setEditing(null)} />
       )}
-      {editingToday && <TodayEditor data={data} actions={actions} todayIso={todayIso} onClose={() => setEditingToday(false)} />}
+      {editingToday && (
+        <TodayEditor
+          data={data}
+          actions={actions}
+          dateIso={viewedIso}
+          past={!isViewingToday}
+          todayIso={todayIso}
+          onClose={() => setEditingToday(false)}
+        />
+      )}
       {editingEntryId && (
         <TodayEntryModal
           data={data}
           actions={actions}
           entryId={editingEntryId}
-          dateIso={todayIso}
+          dateIso={viewedIso}
+          past={!isViewingToday}
+          todayIso={todayIso}
           onClose={() => setEditingEntryId(null)}
         />
       )}

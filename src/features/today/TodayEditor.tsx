@@ -1,30 +1,45 @@
 import { useState } from 'react'
 import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { blockStyle, depthClass, onTimelineEntries, resolve, stripeVar } from '../../lib/planner'
+import { blockStyle, depthClass, fromIso, longDate, resolve, stripeVar, viewedEntries } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
 import { TodayEntryModal } from './TodayEntryModal'
 
-/** The single "today" editing affordance: drag to reorder, drag the bottom
+/** The single "day plan" editing affordance: drag to reorder, drag the bottom
  *  edge to resize (mirrors DayEditor's feel for the weekday Template), tap a
  *  title to open its detail modal, drag or tap a bucket task chip to drop it
- *  onto today's timeline. Edits today's Log Entries only — never the
- *  Template or its buckets. */
+ *  onto the day's timeline. Edits `dateIso`'s Log Entries only — never the
+ *  Template or its buckets.
+ *
+ *  `past` (#25) edits a day other than the actual current one — sourced from
+ *  the frozen-past-with-state lens (dropped/migrated included) instead of the
+ *  live on-timeline lens. Every entry's *effective* anchor is forced `true`
+ *  for the layout handed to `TimelineEditor` until the user explicitly saves
+ *  it through `TodayEntryModal` (tracked in `touchedIds`) — a display-only
+ *  safety net so opening a past day never silently reflows it before anything
+ *  is touched (mirrors the ADR-0002 amendment's frozen-past rendering fix).
+ *  Once touched, the entry's real `anchored` flag governs — the mechanism for
+ *  "explicitly un-anchor to opt into reflow" (#25's #24). */
 export function TodayEditor({
   data,
   actions,
+  dateIso,
+  past = false,
   todayIso,
   onClose,
 }: {
   data: PlannerData
   actions: PlannerActions
-  todayIso: string
+  dateIso: string
+  past?: boolean
+  todayIso?: string
   onClose: () => void
 }) {
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
-  const items = onTimelineEntries(data.logEntries, todayIso)
+  const [touchedIds, setTouchedIds] = useState<Set<string>>(new Set())
+  const items = viewedEntries(data.logEntries, dateIso, past)
 
-  /** Where a freshly-added item lands: right after today's last on-timeline
+  /** Where a freshly-added item lands: right after the day's last on-timeline
    *  entry. `startMin` is what marks an entry as "on the timeline" at all
    *  (vs. a rapid-log todo) — every add path must set one. */
   function nextStartMin(): number {
@@ -40,7 +55,7 @@ export function TodayEditor({
     const task = bucket?.tasks.find((t) => t.id === taskId)
     if (!bucket || !task) return null
     return actions.addLogEntry({
-      onDate: todayIso,
+      onDate: dateIso,
       kind: 'task',
       text: task.name,
       // Record the source Bucket (#18) so the entry groups into and recolors
@@ -50,7 +65,7 @@ export function TodayEditor({
       durMin: 60,
       startMin: nextStartMin(),
       anchored: false,
-      // Carry the task's traces onto today's entry so a check-off both logs the
+      // Carry the task's traces onto the entry so a check-off both logs the
       // habit (#24 — the entry-based mirror, since a directly-added entry has no
       // Block) and accrues to the project/sprint (#21).
       habitId: task.habitId,
@@ -65,7 +80,7 @@ export function TodayEditor({
     // stale (pre-add) data and show placeholder defaults instead of what was
     // just created. Tap the new "New item" card to rename it once it renders.
     await actions.addLogEntry({
-      onDate: todayIso,
+      onDate: dateIso,
       kind: 'task',
       text: 'New item',
       cat: 'open',
@@ -75,8 +90,17 @@ export function TodayEditor({
     })
   }
 
+  /** In past mode, force the displayed anchor to `true` (pinned at stored
+   *  start) until the user has explicitly saved this entry through the modal
+   *  — the safety net that keeps opening a past day from silently reflowing
+   *  it (#25). Live-today mode always honors the entry's real anchor. */
+  function effectiveAnchor(e: { id: string; anchored: boolean }): boolean {
+    if (!past) return e.anchored
+    return touchedIds.has(e.id) ? e.anchored : true
+  }
+
   return (
-    <Modal title="Today's plan · edit" onClose={onClose} wide>
+    <Modal title={past ? `${longDate(fromIso(dateIso))} · edit` : "Today's plan · edit"} onClose={onClose} wide>
       <div className="grid items-start gap-3 max-md:grid-cols-1 md:grid-cols-[1fr_240px]">
         <div className="daycard" style={{ maxHeight: 'calc(90vh - 180px)', overflowY: 'auto' }}>
           <TimelineEditor
@@ -89,23 +113,27 @@ export function TodayEditor({
               title: e.text,
               startMin: e.startMin ?? 0,
               durMin: e.durMin ?? 30,
-              anchored: e.anchored,
+              anchored: past ? touchedIds.has(e.id) ? e.anchored : true : e.anchored,
               deep: e.deep,
             }))}
             buckets={data.buckets}
             onSetMins={(id, mins) => actions.updateLogEntry(id, { durMin: mins })}
             onSetStart={(id, startMin) => actions.updateLogEntry(id, { startMin })}
-            onReorder={(ids) => actions.reorderLogEntries(todayIso, ids)}
+            onReorder={(ids) => actions.reorderLogEntries(dateIso, ids)}
             onRemove={(id) => actions.deleteLogEntry(id)}
             onTitleClick={setEditingEntryId}
-            emptyHint="Tap a task chip (or drag it here) to add — or add a custom item below."
+            emptyHint={
+              past
+                ? 'Nothing recorded — ↻ pulls the Template in, or add a custom item below.'
+                : 'Tap a task chip (or drag it here) to add — or add a custom item below.'
+            }
             onDropExternal={async (payload, at) => {
               const [bk, task] = payload.split('|')
               const id = await addFromChip(bk, task)
               if (id && at < items.length) {
                 const ids = items.map((e) => e.id)
                 ids.splice(at, 0, id)
-                await actions.reorderLogEntries(todayIso, ids)
+                await actions.reorderLogEntries(dateIso, ids)
               }
             }}
           />
@@ -155,7 +183,10 @@ export function TodayEditor({
           data={data}
           actions={actions}
           entryId={editingEntryId}
-          dateIso={todayIso}
+          dateIso={dateIso}
+          past={past}
+          todayIso={todayIso}
+          onSaved={(id) => setTouchedIds((s) => new Set(s).add(id))}
           onClose={() => setEditingEntryId(null)}
         />
       )}

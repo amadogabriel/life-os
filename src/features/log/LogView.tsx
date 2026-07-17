@@ -8,7 +8,9 @@ import {
   bullet,
   depthClass,
   fmtDur,
+  fromIso,
   isoDate,
+  longDate,
   materializes,
   SIGNIFIER_GLYPH,
   stripeVar,
@@ -41,10 +43,6 @@ const KINDS: { kind: LogKind; glyph: string; label: string }[] = [
 ]
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const longDate = (d: Date) =>
-  d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
-/** noon-anchored parse so an ISO date never rolls to the wrong day by timezone. */
-const fromIso = (iso: string) => new Date(iso + 'T12:00:00')
 const mdShort = (iso: string) => {
   const [, m, d] = iso.split('-').map(Number)
   return `${MONTHS[m - 1]} ${d}`

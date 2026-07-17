@@ -533,6 +533,18 @@ export function isoDate(d: Date): string {
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
 }
 
+/** noon-anchored parse of an ISO date so it never rolls to the wrong day by timezone. */
+export function fromIso(iso: string): Date {
+  return new Date(iso + 'T12:00:00')
+}
+
+/** Weekday + short month + day + year, e.g. "Friday, Jul 18, 2026" — the
+ *  long-form date label shared by the Log tab's day header and the Today
+ *  tab's past-day pager (#25). */
+export function longDate(d: Date): string {
+  return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 /** Weekday with Monday = 0 … Sunday = 6. */
 export function dowMon(d: Date): number {
   const x = d.getDay()
@@ -720,6 +732,37 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
   }))
 }
 
+interface FrozenLayoutRow<T> {
+  entry: T
+  start: number
+  conflict: boolean
+}
+
+/**
+ * Shared core behind `frozenPastItems` and `frozenPastEntries`: sort a day's
+ * task entries by their stored freeze-time `start_min` (never re-chained via
+ * `resolve()` — ADR-0002 amendment), drop placeholder rows (a blank title or
+ * an explicit zero duration — a half-built Template block that froze empty),
+ * and flag — without repositioning — any entry whose stored start overlaps
+ * the previous one's span. Stable sort: input pre-sorted by position, so
+ * equal starts keep their frozen record order.
+ */
+function frozenLayout<T extends { startMin: number | null; text: string; durMin: number | null }>(
+  entries: T[],
+): FrozenLayoutRow<T>[] {
+  const items = entries
+    .filter((e) => e.startMin != null && e.text.trim() !== '' && e.durMin !== 0)
+    .map((e) => ({ entry: e, start: e.startMin as number, conflict: false }))
+    .sort((a, b) => a.start - b.start)
+  let prevEnd = -Infinity
+  for (const it of items) {
+    const dur = it.entry.durMin ?? DEFAULT_ENTRY_DUR
+    if (it.start < prevEnd) it.conflict = true
+    prevEnd = Math.max(prevEnd, it.start + dur)
+  }
+  return items
+}
+
 /**
  * The frozen-past lens: a materialized day laid out at each entry's **stored**
  * freeze-time `start_min` — the plan exactly as it was frozen — NOT re-flowed
@@ -735,31 +778,57 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
  * (rendered with a collision tint) but never repositioned.
  */
 export function frozenPastItems(entries: LogEntry[]): PlanItem[] {
-  const items = entries
-    .filter((e) => e.startMin != null && e.text.trim() !== '' && e.durMin !== 0)
-    .map((e) => ({
-      key: `entry:${e.id}`,
-      title: e.text,
-      detail: '',
-      bucketId: e.bucketId, // Log Entries carry a Bucket reference (#18); color resolves live
-      cat: e.cat,
-      deep: e.deep,
-      durMin: e.durMin ?? DEFAULT_ENTRY_DUR,
-      start: e.startMin as number,
-      conflict: false,
-      anchored: e.anchored,
-      blockId: e.blockId,
-      entryId: e.id,
-    }))
-    // Stable sort by clock time; input pre-sorted by position, so equal starts
-    // keep their frozen record order.
-    .sort((a, b) => a.start - b.start)
-  let prevEnd = -Infinity
-  for (const it of items) {
-    if (it.start < prevEnd) it.conflict = true
-    prevEnd = Math.max(prevEnd, it.start + it.durMin)
-  }
-  return items
+  return frozenLayout(entries).map(({ entry: e, start, conflict }) => ({
+    key: `entry:${e.id}`,
+    title: e.text,
+    detail: '',
+    bucketId: e.bucketId, // Log Entries carry a Bucket reference (#18); color resolves live
+    cat: e.cat,
+    deep: e.deep,
+    durMin: e.durMin ?? DEFAULT_ENTRY_DUR,
+    start,
+    conflict,
+    anchored: e.anchored,
+    blockId: e.blockId,
+    entryId: e.id,
+  }))
+}
+
+/**
+ * `dateIso`'s Daily Log through the frozen-past lens, keeping full Log Entry
+ * state (id/state/habitId/bucketId/…) instead of `frozenPastItems`'s
+ * trimmed, state-stripped `PlanItem` — the Today tab's pageable past-day
+ * view (#25) needs the real record, not a plan summary. Same layout core:
+ * sorted by stored start, never re-chained; overlaps flagged `conflict`,
+ * never repositioned.
+ *
+ * Diverges from `onTimelineEntries` (today's live lens) on purpose: dropped
+ * and migrated entries are INCLUDED, with their real state intact, so a past
+ * day stays actionable (reopen a dropped item, migrate an open one forward).
+ * Diverges from `frozenPastItems`/Planner in the other direction: no
+ * `materializes()`/counted filtering — life/routine items always render,
+ * same as `frozenPastItems` already does.
+ */
+export function frozenPastEntries(entries: LogEntry[], dateIso: string): Resolved<LogEntry & { durMin: number }>[] {
+  const dayEntries = entries
+    .filter((e) => e.onDate === dateIso && e.kind === 'task')
+    .sort((a, b) => a.position - b.position)
+  return frozenLayout(dayEntries).map(({ entry, start, conflict }) => ({
+    block: { ...entry, durMin: entry.durMin ?? DEFAULT_ENTRY_DUR },
+    start,
+    conflict,
+  }))
+}
+
+/**
+ * The item lens the Today tab's plan editor and entry modal both source from
+ * (#25): the live on-timeline lens for the actual current day, else the
+ * frozen-past-with-state lens for `dateIso`. One seam so `TodayEditor` and
+ * `TodayEntryModal` can't drift on which entries a past day's structural
+ * editing surface exposes.
+ */
+export function viewedEntries(entries: LogEntry[], dateIso: string, past: boolean): LogEntry[] {
+  return past ? frozenPastEntries(entries, dateIso).map((r) => r.block) : onTimelineEntries(entries, dateIso)
 }
 
 /**

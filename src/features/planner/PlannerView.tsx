@@ -647,7 +647,7 @@ export function PlannerView({ data, actions, today }: ViewProps) {
         <BlockModal data={data} actions={actions} editing={editing} onClose={() => setEditing(null)} />
       )}
       {editingToday && (
-        <TodayEditor data={data} actions={actions} todayIso={todayIso} onClose={() => setEditingToday(false)} />
+        <TodayEditor data={data} actions={actions} dateIso={todayIso} onClose={() => setEditingToday(false)} />
       )}
       {editingEntry && (
         <TodayEntryModal

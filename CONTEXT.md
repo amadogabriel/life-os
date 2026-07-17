@@ -35,8 +35,25 @@ show the plan as it was frozen — rendered at each entry's stored freeze-time
 start, **not** re-flowed (ADR-0002 amendment) — future days show the Template
 **projected** onto real dates plus any Day Plan forks and dated one-offs. A
 Planner-wide **Focus** toggle can hide uncounted (Life) items. Paging it writes
-nothing.
+nothing. Clicking into the cell for the live current day opens the Today
+(tab)'s plan editor (Log Entries only — no Bucket/Bucket Task management);
+every other day (Template weekday, fork, or projected day) opens the Day
+editor instead, which is the only place Buckets and Bucket Tasks are created
+or edited.
 _Avoid_: week view, calendar
+
+**Today (tab)**:
+The pageable live/record editor for any day up to and including today (#25) —
+distinct from Planner's dated *plan* weeks and the Log tab's flat journal. An
+Earlier/Today/Later pager (never into the future) re-anchors every card —
+plan, Todos, Brain dump, Habits, header stats, Week-at-a-glance — to the
+viewed day. On the actual current day it's the live, editable timeline
+(unchanged); on a past day it's that day's Daily Log through the frozen-past
+lens with full state (`frozenPastEntries`) — dropped/migrated entries stay
+visible and actionable — opened for structural editing (retime, resize,
+reorder, add, delete) with every entry pinned at its stored start until
+explicitly un-anchored, so opening it never silently reflows history.
+_Avoid_: today's plan (the card within it, not the tab)
 
 **Day Plan (fork)**:
 A dated, whole-day copy of the weekday Template, created when the user edits one

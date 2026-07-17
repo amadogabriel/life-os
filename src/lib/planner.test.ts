@@ -16,6 +16,7 @@ import {
   forkCopies,
   fortnightReport,
   freezeBlockEntry,
+  frozenPastEntries,
   frozenPastItems,
   isCounted,
   isoDate,
@@ -619,6 +620,92 @@ describe('frozenPastItems — the frozen-past lens (ADR-0002 amendment)', () => 
 
   it('excludes entries with no start time (rapid-log todos are not on the timeline)', () => {
     expect(frozenPastItems([entry({ id: 't', text: 'todo', startMin: null })])).toEqual([])
+  })
+})
+
+describe('frozenPastEntries — the frozen-past lens with full record state (#25)', () => {
+  const dateIso = '2026-07-13'
+
+  it('renders at stored start_min, sorted by clock — no re-flow of position order', () => {
+    const rows = frozenPastEntries(
+      [
+        entry({ id: 'late', onDate: dateIso, text: 'Afternoon', startMin: 780, durMin: 60, position: 0 }),
+        entry({ id: 'early', onDate: dateIso, text: 'Dawn', startMin: 360, durMin: 60, position: 1 }),
+      ],
+      dateIso,
+    )
+    expect(rows.map((r) => r.block.id)).toEqual(['early', 'late'])
+    expect(rows.map((r) => r.start)).toEqual([360, 780])
+  })
+
+  it('drops placeholder rows (blank title or zero duration); keeps titled null-dur at the default', () => {
+    const rows = frozenPastEntries(
+      [
+        entry({ id: 'blank', onDate: dateIso, text: '', startMin: 400, durMin: 0 }),
+        entry({ id: 'idea', onDate: dateIso, text: 'Titled, no dur', startMin: 600, durMin: null }),
+        entry({ id: 'real', onDate: dateIso, text: 'Work', startMin: 700, durMin: 60 }),
+      ],
+      dateIso,
+    )
+    expect(rows.map((r) => r.block.id)).toEqual(['idea', 'real'])
+    expect(rows.find((r) => r.block.id === 'idea')!.block.durMin).toBe(30)
+  })
+
+  it('flags — but does not reflow — an entry overlapping the previous one', () => {
+    const rows = frozenPastEntries(
+      [
+        entry({ id: 'span', onDate: dateIso, text: 'Long block', startMin: 480, durMin: 180 }),
+        entry({ id: 'inside', onDate: dateIso, text: 'Pinned inside', startMin: 600, durMin: 30 }),
+      ],
+      dateIso,
+    )
+    const by = Object.fromEntries(rows.map((r) => [r.block.id, r]))
+    expect(by.span.conflict).toBe(false)
+    expect(by.inside.conflict).toBe(true)
+    expect(by.inside.start).toBe(600) // true time, not pushed down
+  })
+
+  it('excludes entries with no start time and entries from other dates/kinds', () => {
+    const rows = frozenPastEntries(
+      [
+        entry({ id: 'todo', onDate: dateIso, text: 'todo', startMin: null }),
+        entry({ id: 'other-day', onDate: '2026-07-14', text: 'Elsewhere', startMin: 480 }),
+        entry({ id: 'a-note', onDate: dateIso, kind: 'note', text: 'Just a note', startMin: 480 }),
+      ],
+      dateIso,
+    )
+    expect(rows).toEqual([])
+  })
+
+  it('divergence from frozenPastItems: dropped and migrated entries are included, state intact', () => {
+    const rows = frozenPastEntries(
+      [
+        entry({ id: 'dropped', onDate: dateIso, text: 'Skipped it', startMin: 480, durMin: 30, state: 'dropped' }),
+        entry({ id: 'migrated', onDate: dateIso, text: 'Pushed forward', startMin: 540, durMin: 30, state: 'migrated' }),
+        entry({ id: 'open', onDate: dateIso, text: 'Still open', startMin: 600, durMin: 30, state: 'open' }),
+      ],
+      dateIso,
+    )
+    expect(rows.map((r) => r.block.id)).toEqual(['dropped', 'migrated', 'open'])
+    expect(rows.map((r) => r.block.state)).toEqual(['dropped', 'migrated', 'open'])
+  })
+
+  it('divergence from frozenPastItems: keeps full record identity — habitId/bucketId/id survive', () => {
+    const rows = frozenPastEntries(
+      [
+        entry({
+          id: 'traced',
+          onDate: dateIso,
+          text: 'Sentence mining',
+          startMin: 480,
+          durMin: 30,
+          bucketId: 'bk-chin',
+          habitId: 'hab-1',
+        }),
+      ],
+      dateIso,
+    )
+    expect(rows[0].block).toMatchObject({ id: 'traced', bucketId: 'bk-chin', habitId: 'hab-1' })
   })
 })
 
