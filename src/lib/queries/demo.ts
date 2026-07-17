@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Block, Cat, LogEntry, LogState } from '../planner'
 import {
   blockLogRowsFromEntries,
+  bucketIdForCat,
   doneBlockMap,
   dowOfIso,
   forkCopies,
@@ -67,7 +68,14 @@ function buildDemoData(): PlannerData {
     logEntries: [],
     projects: [],
     sprints: [],
-    habits: defaultHabits.map((h, position) => ({ id: nid(), position, ...h })),
+    // Habits carry their cat's bucket, mirroring migration 0018's cat→bucket
+    // backfill — color then resolves live through the reference (blockStyle).
+    habits: defaultHabits.map((h, position) => ({
+      id: nid(),
+      position,
+      bucketId: bucketIdForCat(h.cat, buckets),
+      ...h,
+    })),
     habitLogs: {},
     buckets,
     designItems: defaultDesignItems.map((it, position) => ({ id: nid(), position, ...it })),
@@ -119,6 +127,12 @@ function load(): PlannerData {
             habitId: b.habitId ?? null,
           })),
         ),
+        // Link habits written before bucket_id existed to their cat's bucket
+        // (mirrors migration 0018's backfill), so recoloring restyles them too.
+        habits: (d.habits ?? []).map((h) => ({
+          ...h,
+          bucketId: h.bucketId ?? bucketByCat.get(h.cat) ?? null,
+        })),
       })
     }
   } catch {
@@ -336,8 +350,15 @@ export function useDemoActions(): PlannerActions {
       mutate((d) => ({
         ...d,
         habits: habit.id
-          ? d.habits.map((h) => (h.id === habit.id ? { ...h, name: habit.name, cat: habit.cat, days: habit.days } : h))
-          : [...d.habits, { id: nid(), name: habit.name, cat: habit.cat, days: habit.days, position }],
+          ? d.habits.map((h) =>
+              h.id === habit.id
+                ? { ...h, name: habit.name, bucketId: habit.bucketId, cat: habit.cat, days: habit.days }
+                : h,
+            )
+          : [
+              ...d.habits,
+              { id: nid(), name: habit.name, bucketId: habit.bucketId, cat: habit.cat, days: habit.days, position },
+            ],
       })),
     deleteHabit: (id) => mutate((d) => ({ ...d, habits: d.habits.filter((h) => h.id !== id) })),
 
@@ -359,11 +380,13 @@ export function useDemoActions(): PlannerActions {
       mutate((d) => ({
         ...d,
         buckets: d.buckets.filter((bk) => bk.id !== id),
-        // Mirror the DB's ON DELETE SET NULL: blocks placed from this bucket
-        // lose the reference and revert to the fallback palette.
+        // Mirror the DB's ON DELETE SET NULL: blocks AND habits placed from this
+        // bucket lose the reference and revert to the fallback palette (staying
+        // functional — Unassigned/gray).
         blocksByDow: d.blocksByDow.map((bs) =>
           bs.map((b) => (b.bucketId === id ? { ...b, bucketId: null } : b)),
         ),
+        habits: d.habits.map((h) => (h.bucketId === id ? { ...h, bucketId: null } : h)),
       })),
 
     addTodo: (text) =>

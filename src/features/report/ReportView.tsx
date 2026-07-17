@@ -3,6 +3,7 @@ import type { ViewProps } from '../../App'
 import { BujoLegend } from '../../components/BujoLegend'
 import {
   addDays,
+  blockStyle,
   CATS,
   catStyles,
   fmtDur,
@@ -95,7 +96,7 @@ export function ReportView({ data, today }: ViewProps) {
       {topStreaks.length > 0 && (
         <div className="mb-5 flex flex-wrap gap-2">
           {topStreaks.map(({ h, s }) => (
-            <span key={h.id} className={`htog s-${h.cat}`} style={stripeVar(styles[h.cat])}>
+            <span key={h.id} className={`htog s-${h.cat}`} style={stripeVar(blockStyle(h, data.buckets))}>
               🔥 {s} · {h.name}
             </span>
           ))}

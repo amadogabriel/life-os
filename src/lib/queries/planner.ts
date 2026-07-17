@@ -280,6 +280,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     habits: habits.data!.map((h) => ({
       id: h.id,
       name: h.name,
+      bucketId: h.bucket_id ?? null,
       cat: h.cat as Cat,
       days: h.days,
       position: h.position,
@@ -357,7 +358,12 @@ export interface PlannerActions {
   /** Move a block to another day; `orderedTargetIds` is the target day's id
    *  order including the moved block. */
   moveBlock(id: string, toDow: number, orderedTargetIds: string[]): Promise<void>
-  saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
+  /** Picks a Bucket; `cat` is stamped from it as derived plumbing (ADR-0003).
+   *  Null bucket → Unassigned. */
+  saveHabit(
+    habit: { id?: string; name: string; bucketId: string | null; cat: Cat; days: number[] },
+    position: number,
+  ): Promise<void>
   deleteHabit(id: string): Promise<void>
   saveBucket(
     bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
@@ -784,8 +790,12 @@ export function usePlannerActions(userId: string): PlannerActions {
       await invalidate()
     },
 
-    async saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number) {
-      const row = { user_id: userId, name: habit.name, cat: habit.cat, days: habit.days }
+    async saveHabit(
+      habit: { id?: string; name: string; bucketId: string | null; cat: Cat; days: number[] },
+      position: number,
+    ) {
+      // The Bucket is authoritative; `cat` is stamped from it (ADR-0003, #19).
+      const row = { user_id: userId, name: habit.name, bucket_id: habit.bucketId, cat: habit.cat, days: habit.days }
       const { error } = habit.id
         ? await supabase.from('habits').update(row).eq('id', habit.id)
         : await supabase.from('habits').insert({ ...row, position })
@@ -845,9 +855,10 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async deleteBucket(id: string) {
-      // The blocks.bucket_id FK is ON DELETE SET NULL: the DB set-nulls every
-      // block placed from this bucket, so they revert to the fallback palette.
-      // The refetch below pulls those set-null blocks back into the cache.
+      // The blocks.bucket_id and habits.bucket_id FKs are ON DELETE SET NULL:
+      // the DB set-nulls every block AND habit placed from this bucket, so they
+      // revert to the fallback palette but stay functional. The refetch below
+      // pulls those set-null rows back into the cache.
       const { error } = await supabase.from('buckets').delete().eq('id', id)
       if (error) throw error
       await invalidate()

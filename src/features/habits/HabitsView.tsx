@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
-import { DOW, dowMon, isoDate, streak, weekDates, type Habit } from '../../lib/planner'
+import { blockStyle, DOW, dowMon, isoDate, streak, stripeVar, weekDates, type Habit } from '../../lib/planner'
 import { HabitModal } from './HabitModal'
 
 export function HabitsView({ data, actions, today }: ViewProps) {
@@ -40,7 +40,7 @@ export function HabitsView({ data, actions, today }: ViewProps) {
                 <td>
                   <button
                     className={`hname s-${h.cat} cursor-pointer border-0 bg-transparent p-0`}
-                    style={{ color: 'var(--ink)' }}
+                    style={{ color: 'var(--ink)', ...stripeVar(blockStyle(h, data.buckets)) }}
                     onClick={() => setEditing(h)}
                   >
                     <span className="dot" />
@@ -56,6 +56,7 @@ export function HabitsView({ data, actions, today }: ViewProps) {
                       {on ? (
                         <button
                           className={`hcell s-${h.cat}`}
+                          style={stripeVar(blockStyle(h, data.buckets))}
                           role="checkbox"
                           aria-checked={checked}
                           onClick={() => actions.toggleHabitLog(h.id, key)}
@@ -84,6 +85,7 @@ export function HabitsView({ data, actions, today }: ViewProps) {
       {editing && (
         <HabitModal
           habit={editing === 'new' ? null : editing}
+          buckets={data.buckets}
           onSave={async (h) => {
             await actions.saveHabit(h, data.habits.length)
             setEditing(null)

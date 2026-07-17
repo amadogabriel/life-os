@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
-import { catStyles, depthClass, dowMon, fmt, isoDate, onTimelineEntries, resolve, streak, stripeVar } from '../../lib/planner'
+import { blockStyle, catStyles, depthClass, dowMon, fmt, isoDate, onTimelineEntries, resolve, streak, stripeVar } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from '../planner/BlockModal'
 import { DayEditor } from '../planner/DayEditor'
 import { TodayEditor } from './TodayEditor'
@@ -250,7 +250,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                   <button
                     key={h.id}
                     className={`htog s-${h.cat}`}
-                    style={stripeVar(styles[h.cat])}
+                    style={stripeVar(blockStyle(h, data.buckets))}
                     role="checkbox"
                     aria-checked={on}
                     onClick={() => actions.toggleHabitLog(h.id, todayIso)}
