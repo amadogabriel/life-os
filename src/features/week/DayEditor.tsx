@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Bucket, PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { catStyles, stripeVar } from '../../lib/planner'
+import { catStyles, depthClass, stripeVar } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
 import { BucketModal } from '../design/BucketModal'
@@ -79,7 +79,7 @@ export function DayEditor({
                 {bk.tasks.map((tk) => (
                   <button
                     key={tk.id}
-                    className={`chip s-${bk.cat}`}
+                    className={`chip s-${bk.cat}${depthClass(tk.deep)}`}
                     style={stripeVar(styles[bk.cat])}
                     draggable
                     onDragStart={(e) => {

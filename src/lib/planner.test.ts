@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   blockLogRowsFromEntries,
+  depthClass,
   doneBlockMap,
   dowMon,
   fmt,
@@ -38,6 +39,18 @@ const b = (over: Partial<Block>): Block => ({
   anchored: false,
   habitId: null,
   ...over,
+})
+
+describe('depthClass', () => {
+  // Contract (#22): deep is the un-suffixed base (boosted look); shallow gets the
+  // ' sh' suffix that mutes it. Every depth-aware surface (blocks, timeline cards,
+  // today/log rows, palette chips) keys its rendering off this single hook.
+  it('returns no suffix for deep work (renders boosted)', () => {
+    expect(depthClass(true)).toBe('')
+  })
+  it('returns the " sh" suffix for shallow work (renders muted)', () => {
+    expect(depthClass(false)).toBe(' sh')
+  })
 })
 
 describe('time formatting', () => {
