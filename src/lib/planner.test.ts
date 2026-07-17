@@ -440,9 +440,52 @@ describe('planForDate', () => {
     expect(day.items[1].conflict).toBe(true)
   })
 
-  // Slice #14 (day forks): a future date with a Day Plan fork resolves from the
-  // fork's own blocks and is tagged 'fork'; the Template no longer speaks for it.
-  it.todo("future day with a Day Plan fork → source 'fork', laid out from the fork (slice #14)")
+  // Day Plan forks (slice #14): a future date with a fork resolves from the
+  // fork's own dated blocks and is tagged 'fork'; the Template no longer
+  // speaks for it.
+  it("future day with a Day Plan fork → source 'fork', laid out from the fork, Template ignored", () => {
+    const dayForks = {
+      '2026-07-16': [
+        // Thursday's Template has 'anchor'/'chain' — the fork replaces them wholesale
+        b({ id: 'f1', dow: 3, position: 0, title: 'Fork deep block', cat: 'thesis', startMin: 600, durMin: 120, anchored: true, deep: true }),
+        b({ id: 'f2', dow: 3, position: 1, title: 'Fork errand', cat: 'life', startMin: 0, durMin: 45 }),
+      ],
+    }
+    const day = planForDate({ ...input, dayForks }, '2026-07-16', todayIso)
+    expect(day.source).toBe('fork')
+    expect(day.items.map((i) => i.blockId)).toEqual(['f1', 'f2']) // not 'anchor'/'chain'
+    expect(day.items.map((i) => i.entryId)).toEqual([null, null])
+    // fork blocks get the same resolve() re-flow: anchored pin, then chained
+    expect(day.items.map((i) => i.start)).toEqual([600, 720])
+    expect(day.items[0]).toMatchObject({ title: 'Fork deep block', cat: 'thesis', deep: true, durMin: 120, anchored: true })
+  })
+
+  it('forked-empty future day renders blank — never the projection', () => {
+    // key present + empty array = an intentionally-emptied fork, not "no fork"
+    const day = planForDate({ ...input, dayForks: { '2026-07-16': [] } }, '2026-07-16', todayIso)
+    expect(day.source).toBe('fork')
+    expect(day.items).toEqual([])
+  })
+
+  it('a fork never overrides the record: today and past days keep their source', () => {
+    const dayForks = {
+      [todayIso]: [b({ id: 'ft', dow: 2, position: 0, title: 'Fork today' })],
+      '2026-07-13': [b({ id: 'fp', dow: 0, position: 0, title: 'Fork past' })],
+    }
+    const today = planForDate({ ...input, dayForks }, todayIso, todayIso)
+    expect(today.source).toBe('today')
+    expect(today.items.map((i) => i.entryId)).toEqual(['t1', 't3'])
+    const past = planForDate({ ...input, dayForks }, '2026-07-13', todayIso)
+    expect(past.source).toBe('frozen-past')
+    expect(past.items.map((i) => i.entryId)).toEqual(['p1', 'p2'])
+  })
+
+  it('a fork on one date leaves other dates of the same weekday projecting the Template', () => {
+    const dayForks = { '2026-07-16': [] } // fork this Thursday…
+    const day = planForDate({ ...input, dayForks }, '2026-07-23', todayIso) // …next Thursday still projects
+    expect(day.source).toBe('projection')
+    expect(day.items.map((i) => i.blockId)).toEqual(['anchor', 'chain'])
+  })
 
   // Slice #13 (dated one-offs): entries with a future onDate + startMin ride on
   // top of that day's projection without forking it.
@@ -492,6 +535,38 @@ describe('planForDate', () => {
     // a one-off belongs only to its own date
     const friday = planForDate({ blocksByDow, logEntries: [...logEntries, oneOff({})] }, '2026-07-17', todayIso)
     expect(friday.items).toEqual([])
+  })
+
+  // Combined (#13 × #14): fork-wins picks the day's base blocks AND the source
+  // tag; dated one-offs merge on top of that base either way.
+  it("dated one-off merges on top of a forked day's own blocks — source stays 'fork'", () => {
+    const dayForks = {
+      '2026-07-16': [
+        b({ id: 'f1', dow: 3, position: 0, title: 'Fork deep block', cat: 'thesis', startMin: 600, durMin: 120, anchored: true, deep: true }),
+        b({ id: 'f2', dow: 3, position: 1, title: 'Fork errand', cat: 'life', startMin: 0, durMin: 45 }),
+      ],
+    }
+    const day = planForDate(
+      { blocksByDow, logEntries: [...logEntries, oneOff({ startMin: 765 })], dayForks },
+      '2026-07-16',
+      todayIso,
+    )
+    expect(day.source).toBe('fork')
+    // the fork's layout is the base (Template 'anchor'/'chain' ignored); the one-off rides on top
+    expect(day.items.map((i) => i.key)).toEqual(['block:f1', 'block:f2', 'entry:o1'])
+    expect(day.items.map((i) => i.start)).toEqual([600, 720, 765])
+    expect(day.items[2]).toMatchObject({ entryId: 'o1', blockId: null, title: 'Sprint task' })
+  })
+
+  it('forked-empty day with a one-off shows just the one-off — blank fork, not blank day', () => {
+    const day = planForDate(
+      { blocksByDow, logEntries: [...logEntries, oneOff({})], dayForks: { '2026-07-16': [] } },
+      '2026-07-16',
+      todayIso,
+    )
+    expect(day.source).toBe('fork')
+    expect(day.items.map((i) => i.key)).toEqual(['entry:o1'])
+    expect(day.items[0].start).toBe(660)
   })
 })
 

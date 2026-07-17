@@ -62,6 +62,7 @@ export type Database = {
           dur_min: number
           habit_id: string | null
           id: string
+          on_date: string | null
           position: number
           start_min: number
           title: string
@@ -77,6 +78,7 @@ export type Database = {
           dur_min: number
           habit_id?: string | null
           id?: string
+          on_date?: string | null
           position: number
           start_min?: number
           title: string
@@ -92,6 +94,7 @@ export type Database = {
           dur_min?: number
           habit_id?: string | null
           id?: string
+          on_date?: string | null
           position?: number
           start_min?: number
           title?: string
@@ -238,6 +241,24 @@ export type Database = {
           created_at?: string
           id?: string
           text?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      forked_days: {
+        Row: {
+          created_at: string
+          on_date: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          on_date: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          on_date?: string
           user_id?: string
         }
         Relationships: []

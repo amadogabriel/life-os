@@ -20,6 +20,7 @@ import type {
 import {
   blockLogRowsFromEntries,
   doneBlockMap,
+  dowMon,
   isoDate,
   manilaDate,
   newLogEntry,
@@ -74,7 +75,11 @@ export interface DesignItem {
 
 export interface PlannerData {
   days: Day[] // index = dow (0 = Monday)
-  blocksByDow: Block[][] // index = dow, sorted by position
+  blocksByDow: Block[][] // index = dow, sorted by position — Template blocks only (on_date null)
+  /** Day Plans (whole-day forks): ISO date → that date's dated Blocks, sorted
+   *  by position. Key presence = the date is forked (an explicit forked_days
+   *  marker); an empty array is an intentionally-emptied fork, not "no fork". */
+  dayForks: Record<string, Block[]>
   blockLogs: LogMap // derived from log entries: on_date -> done block ids
   blockLogRows: BlockLogRow[] // derived: done block-sourced entries as frozen snapshots
   logEntries: LogEntry[] // the log-primary record, sorted by (on_date, position)
@@ -167,10 +172,11 @@ async function seedDefaults(userId: string): Promise<void> {
 }
 
 async function fetchPlanner(userId: string): Promise<PlannerData> {
-  const [days, blocks, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile] =
+  const [days, blocks, forkedDays, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile] =
     await Promise.all([
       supabase.from('days').select('*').order('dow'),
       supabase.from('blocks').select('*').order('dow').order('position'),
+      supabase.from('forked_days').select('*').order('on_date'),
       supabase.from('habits').select('*').order('position'),
       supabase.from('habit_logs').select('*'),
       supabase.from('buckets').select('*').order('position'),
@@ -183,7 +189,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       supabase.from('sprints').select('*').order('position'),
       supabase.from('profiles').select('*').maybeSingle(),
     ])
-  const results = [days, blocks, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile]
+  const results = [days, blocks, forkedDays, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile]
   for (const r of results) if (r.error) throw r.error
 
   if (!days.data || days.data.length === 0) {
@@ -192,9 +198,15 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     return fetchPlanner(userId)
   }
 
+  // Template blocks (on_date null) fill the weekday grid; dated blocks belong
+  // to their date's Day Plan (fork). The forked_days markers seed the map, so
+  // a forked day whose blocks were all deleted still shows up (as an
+  // intentionally-empty fork), never falling back to the Template.
   const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
+  const dayForks: Record<string, Block[]> = {}
+  for (const f of forkedDays.data!) dayForks[f.on_date] = []
   for (const b of blocks.data!) {
-    blocksByDow[b.dow].push({
+    const block: Block = {
       id: b.id,
       dow: b.dow,
       position: b.position,
@@ -206,8 +218,11 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       anchored: b.anchored,
       deep: b.deep ?? false,
       habitId: b.habit_id ?? null,
-    })
+    }
+    if (b.on_date) (dayForks[b.on_date] ??= []).push(block)
+    else blocksByDow[b.dow].push(block)
   }
+  for (const list of Object.values(dayForks)) list.sort((a, b) => a.position - b.position)
 
   const taskByBucket = new Map<string, BucketTask[]>()
   for (const t of bucketTasks.data!) {
@@ -238,6 +253,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
   return {
     days: days.data.map((d) => ({ dow: d.dow, name: d.name, loc: d.loc })),
     blocksByDow,
+    dayForks,
     // Log-primary: block state lives in the Daily Log, not the retired block_logs.
     blockLogs: doneBlockMap(entries),
     blockLogRows: blockLogRowsFromEntries(entries),
@@ -308,13 +324,30 @@ export interface PlannerActions {
    *  and the on-open catch-up. Returns the number of newly-frozen entries. */
   materializeDay(dateIso: string): Promise<number>
   addBlock(dow: number, position: number): Promise<string>
+  /** Works on Template AND Day Plan (fork) Blocks — both live in `blocks`,
+   *  addressed by id. */
   updateBlock(
     id: string,
     fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>,
   ): Promise<void>
+  /** Works on Template AND Day Plan (fork) Blocks. */
   deleteBlock(id: string): Promise<void>
+  /** Works on Template AND Day Plan (fork) Blocks (both must share a day). */
   swapBlocks(a: Block, b: Block): Promise<void>
   reorderBlocks(dow: number, orderedIds: string[]): Promise<void>
+  /** Fork `dateIso` into its own Day Plan: copy the weekday Template's Blocks
+   *  into dated Blocks and record the forked-day marker; the date stops
+   *  following the Template entirely. Returns source Template Block id → its
+   *  fork copy's id (so an in-flight edit can retarget the fork). No-op
+   *  (empty map) when the date is already forked. */
+  forkDay(dateIso: string): Promise<Record<string, string>>
+  /** Discard `dateIso`'s Day Plan — dated Blocks and marker — returning the
+   *  date to the Template projection. */
+  unforkDay(dateIso: string): Promise<void>
+  /** Append a new Block to `dateIso`'s Day Plan (fork) — mirror of addBlock. */
+  addForkBlock(dateIso: string, position: number): Promise<string>
+  /** Re-number a fork's Blocks to the given id order — mirror of reorderBlocks. */
+  reorderForkBlocks(dateIso: string, orderedIds: string[]): Promise<void>
   /** Move a block to another day; `orderedTargetIds` is the target day's id
    *  order including the moved block. */
   moveBlock(id: string, toDow: number, orderedTargetIds: string[]): Promise<void>
@@ -553,10 +586,14 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>) {
-      // Optimistic: rapid ± duration taps must see each other's result.
+      // Optimistic: rapid ± duration taps must see each other's result. The id
+      // may name a Template block or a Day Plan (fork) block — same table.
       patch((data) => ({
         ...data,
         blocksByDow: data.blocksByDow.map((bs) => bs.map((b) => (b.id === id ? { ...b, ...fields } : b))),
+        dayForks: Object.fromEntries(
+          Object.entries(data.dayForks).map(([date, bs]) => [date, bs.map((b) => (b.id === id ? { ...b, ...fields } : b))]),
+        ),
       }))
       const { error } = await supabase
         .from('blocks')
@@ -627,6 +664,109 @@ export function usePlannerActions(userId: string): PlannerActions {
           .sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id))
           .map((b, position) => ({ ...b, position }))
         return { ...data, blocksByDow: data.blocksByDow.map((bs, i) => (i === dow ? blocks : bs)) }
+      })
+      const results = await Promise.all(
+        orderedIds.map((id, position) => supabase.from('blocks').update({ position }).eq('id', id)),
+      )
+      const failed = results.find((r) => r.error)
+      if (failed) {
+        invalidate()
+        throw failed.error
+      }
+      await invalidate()
+    },
+
+    /** Copy the weekday Template into dated Blocks + write the forked-day
+     *  marker. Marker first: if the copies then fail, the date is a blank fork
+     *  (visible, recoverable via unfork) rather than orphaned dated rows. */
+    async forkDay(dateIso: string) {
+      const cache = qc.getQueryData<PlannerData>(plannerKey)
+      if (cache?.dayForks[dateIso]) return {}
+      const dow = dowMon(new Date(`${dateIso}T00:00:00`))
+      const src = cache?.blocksByDow[dow] ?? []
+      const idMap: Record<string, string> = {}
+      const copies = src.map((b) => {
+        const id = crypto.randomUUID() // client-side ids give us the id map without a read-back
+        idMap[b.id] = id
+        return { ...b, id }
+      })
+      patch((data) => ({ ...data, dayForks: { ...data.dayForks, [dateIso]: copies } }))
+      const m = await supabase.from('forked_days').insert({ user_id: userId, on_date: dateIso })
+      if (m.error) {
+        invalidate()
+        throw m.error
+      }
+      if (copies.length) {
+        const r = await supabase.from('blocks').insert(
+          copies.map((b) => ({
+            id: b.id,
+            user_id: userId,
+            dow: b.dow,
+            on_date: dateIso,
+            position: b.position,
+            cat: b.cat,
+            title: b.title,
+            detail: b.detail,
+            start_min: b.startMin,
+            dur_min: b.durMin,
+            anchored: b.anchored,
+            deep: b.deep,
+            habit_id: b.habitId,
+          })),
+        )
+        if (r.error) {
+          invalidate()
+          throw r.error
+        }
+      }
+      await invalidate()
+      return idMap
+    },
+
+    async unforkDay(dateIso: string) {
+      patch((data) => {
+        const dayForks = { ...data.dayForks }
+        delete dayForks[dateIso]
+        return { ...data, dayForks }
+      })
+      const r1 = await supabase.from('blocks').delete().eq('user_id', userId).eq('on_date', dateIso)
+      const r2 = await supabase.from('forked_days').delete().eq('user_id', userId).eq('on_date', dateIso)
+      if (r1.error || r2.error) {
+        invalidate()
+        throw r1.error ?? r2.error
+      }
+      await invalidate()
+    },
+
+    async addForkBlock(dateIso: string, position: number) {
+      const { data, error } = await supabase
+        .from('blocks')
+        .insert({
+          user_id: userId,
+          dow: dowMon(new Date(`${dateIso}T00:00:00`)),
+          on_date: dateIso,
+          position,
+          cat: 'open',
+          title: 'New block — assign',
+          detail: '',
+          start_min: 720,
+          dur_min: 30,
+          anchored: false,
+        })
+        .select('id')
+        .single()
+      if (error) throw error
+      await invalidate()
+      return data.id
+    },
+
+    /** Re-number a fork's blocks to match the given id order (drag reorder). */
+    async reorderForkBlocks(dateIso: string, orderedIds: string[]) {
+      patch((data) => {
+        const blocks = [...(data.dayForks[dateIso] ?? [])]
+          .sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id))
+          .map((b, position) => ({ ...b, position }))
+        return { ...data, dayForks: { ...data.dayForks, [dateIso]: blocks } }
       })
       const results = await Promise.all(
         orderedIds.map((id, position) => supabase.from('blocks').update({ position }).eq('id', id)),
@@ -908,7 +1048,11 @@ export function usePlannerActions(userId: string): PlannerActions {
       // Chain after the day's last planned item, ignoring the entry itself
       // (re-scheduling must not chain after its own old slot).
       const others = cache.logEntries.filter((e) => e.id !== entryId)
-      const startMin = nextOneOffStart({ blocksByDow: cache.blocksByDow, logEntries: others }, dateIso, todayIso)
+      const startMin = nextOneOffStart(
+        { blocksByDow: cache.blocksByDow, logEntries: others, dayForks: cache.dayForks },
+        dateIso,
+        todayIso,
+      )
       const position = others.filter((e) => e.onDate === dateIso).reduce((m, e) => Math.max(m, e.position + 1), 0)
       const fields = { onDate: dateIso, startMin, anchored: false, position }
       patch((d) => ({ ...d, logEntries: d.logEntries.map((e) => (e.id === entryId ? { ...e, ...fields } : e)) }))

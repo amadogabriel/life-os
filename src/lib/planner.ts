@@ -430,17 +430,21 @@ export interface DayPlan {
   items: PlanItem[]
 }
 
-/** Everything `planForDate` reads. Later slices widen this, not the signature:
- *  - slice #13 (dated one-offs): entries with a **future** `onDate` + `startMin`
- *    already arrive via `logEntries`; the resolver will merge them into that
- *    day's projection/fork.
- *  - slice #14 (day forks): adds a `dayForks` field (dated whole-day Day Plans);
- *    a fork for the date wins over the Template and tags the day 'fork'. */
+/** Everything `planForDate` reads. Dated one-offs (#13) — entries with a
+ *  **future** `onDate` + `startMin` — arrive via `logEntries`; the resolver
+ *  merges them into that day's projection/fork. */
 export interface PlanForDateInput {
   /** The weekday Template, index = dow (Mon = 0), each day sorted by position. */
   blocksByDow: Block[][]
   /** The log-primary record (materialized past days + today's live plan). */
   logEntries: LogEntry[]
+  /** Day Plans (whole-day forks): ISO date → that date's dated Blocks, sorted
+   *  by position. A key's **presence** means the date is forked — an empty
+   *  array is an intentionally-emptied day (renders blank), not "no fork".
+   *  A fork wins over the Template for future dates and tags the day 'fork';
+   *  the record still wins for today/past (a fork is plan-side only). Dated
+   *  one-offs (slice #13) merge on top of either a projection or a fork. */
+  dayForks?: Record<string, Block[]>
 }
 
 const DEFAULT_ENTRY_DUR = 30 // hand-typed timeline entries carry no frozen duration
@@ -531,12 +535,15 @@ export function nextOneOffStart(input: PlanForDateInput, dateIso: string, todayI
  *   state** (done/migrated/dropped are facts about the record; the plan is the
  *   plan as frozen). Never-materialized days come back empty (blank column).
  * - Today → 'today': the live plan, exactly `onTimelineEntries` (the Today tab's lens).
- * - Future date → 'projection': the weekday Template laid out by `resolve()`,
- *   then merged with the date's dated one-offs (entries with this `onDate` +
- *   a `startMin`, same lens as the Today timeline) via `mergeDatedOneOffs` —
- *   one-offs ride on top of the projection; they never fork the day.
- *   TODO(slice #14): resolve a forked date from its Day Plan and tag it 'fork'
- *   (one-offs merge onto the fork's layout the same way).
+ * - Future date → 'fork' when the date has a Day Plan (whole-day fork): laid
+ *   out from the fork's own dated Blocks, ignoring the Template entirely — a
+ *   forked-empty day renders blank, never the projection.
+ * - Future date otherwise → 'projection': the weekday Template laid out by
+ *   `resolve()`.
+ * - Either way, the future day's base layout is then merged with the date's
+ *   dated one-offs (entries with this `onDate` + a `startMin`, same lens as
+ *   the Today timeline) via `mergeDatedOneOffs` — one-offs ride on top of the
+ *   projection or fork; they never fork the day themselves.
  */
 export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: string): DayPlan {
   if (dateIso < todayIso) {
@@ -548,7 +555,8 @@ export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: 
   if (dateIso === todayIso) {
     return { dateIso, source: 'today', items: entryItems(onTimelineEntries(input.logEntries, dateIso)) }
   }
-  const blocks = input.blocksByDow[dowMon(new Date(`${dateIso}T00:00:00`))] ?? []
+  const fork = input.dayForks?.[dateIso]
+  const blocks = fork ?? input.blocksByDow[dowMon(new Date(`${dateIso}T00:00:00`))] ?? []
   const items = resolve(blocks).map(({ block: b, start, conflict }) => ({
     key: `block:${b.id}`,
     title: b.title,
@@ -562,7 +570,11 @@ export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: 
     blockId: b.id,
     entryId: null,
   }))
-  return { dateIso, source: 'projection', items: mergeDatedOneOffs(items, onTimelineEntries(input.logEntries, dateIso)) }
+  return {
+    dateIso,
+    source: fork ? 'fork' : 'projection',
+    items: mergeDatedOneOffs(items, onTimelineEntries(input.logEntries, dateIso)),
+  }
 }
 
 /**

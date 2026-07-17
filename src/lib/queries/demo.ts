@@ -48,6 +48,7 @@ function buildDemoData(): PlannerData {
         habitId: null,
       })),
     ),
+    dayForks: {},
     blockLogs: {},
     blockLogRows: [],
     logEntries: [],
@@ -90,6 +91,7 @@ function load(): PlannerData {
       const d = JSON.parse(raw) as PlannerData
       return finalize({
         ...d,
+        dayForks: d.dayForks ?? {},
         todos: d.todos ?? [],
         dumps: d.dumps ?? [],
         logEntries: d.logEntries ?? [],
@@ -139,6 +141,20 @@ export function useDemoActions(): PlannerActions {
     blocksByDow: d.blocksByDow.map((blocks, i) => (i === dow ? renumber(fn(blocks)) : blocks)),
   })
   const findDow = (d: PlannerData, id: string) => d.blocksByDow.findIndex((bs) => bs.some((b) => b.id === id))
+  // A block id names either a Template block (blocksByDow) or a Day Plan
+  // (fork) block (dayForks) — id-based actions serve both.
+  const findForkDate = (d: PlannerData, id: string) =>
+    Object.keys(d.dayForks).find((date) => d.dayForks[date].some((b) => b.id === id))
+  const mapFork = (d: PlannerData, dateIso: string, fn: (blocks: Block[]) => Block[]) => ({
+    ...d,
+    dayForks: { ...d.dayForks, [dateIso]: renumber(fn(d.dayForks[dateIso] ?? [])) },
+  })
+  const mapBlockLists = (d: PlannerData, id: string, fn: (blocks: Block[]) => Block[]) => {
+    const dow = findDow(d, id)
+    if (dow >= 0) return mapDow(d, dow, fn)
+    const date = findForkDate(d, id)
+    return date ? mapFork(d, date, fn) : d
+  }
 
   return {
     toggleBlockLog: (id, dateIso) =>
@@ -190,7 +206,9 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) => {
         const dow = dowMon(new Date(`${dateIso}T00:00:00`))
         const frozen = new Set(d.logEntries.filter((e) => e.onDate === dateIso && e.blockId).map((e) => e.blockId))
-        const blocks = d.blocksByDow[dow] ?? []
+        // Fork wins: a forked date freezes from its Day Plan (even when
+        // intentionally emptied), an unforked date from the weekday Template.
+        const blocks = d.dayForks[dateIso] ?? d.blocksByDow[dow] ?? []
         const resolved = resolve(blocks)
         let position = d.logEntries
           .filter((e) => e.onDate === dateIso)
@@ -229,12 +247,12 @@ export function useDemoActions(): PlannerActions {
       return id
     },
     updateBlock: (id, fields) =>
-      mutate((d) => mapDow(d, findDow(d, id), (blocks) => blocks.map((b) => (b.id === id ? { ...b, ...fields } : b)))),
+      mutate((d) => mapBlockLists(d, id, (blocks) => blocks.map((b) => (b.id === id ? { ...b, ...fields } : b)))),
     deleteBlock: (id) =>
-      mutate((d) => mapDow(d, findDow(d, id), (blocks) => blocks.filter((b) => b.id !== id))),
+      mutate((d) => mapBlockLists(d, id, (blocks) => blocks.filter((b) => b.id !== id))),
     swapBlocks: (a, b) =>
       mutate((d) =>
-        mapDow(d, a.dow, (blocks) => {
+        mapBlockLists(d, a.id, (blocks) => {
           const arr = [...blocks]
           const i = arr.findIndex((x) => x.id === a.id)
           const j = arr.findIndex((x) => x.id === b.id)
@@ -263,6 +281,43 @@ export function useDemoActions(): PlannerActions {
     reorderBlocks: (dow, orderedIds) =>
       mutate((d) =>
         mapDow(d, dow, (blocks) =>
+          [...blocks].sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id)),
+        ),
+      ),
+
+    async forkDay(dateIso) {
+      const idMap: Record<string, string> = {}
+      await mutate((d) => {
+        if (d.dayForks[dateIso]) return d // already forked — edits go to the fork
+        const dow = dowMon(new Date(`${dateIso}T00:00:00`))
+        const copies = (d.blocksByDow[dow] ?? []).map((b) => {
+          const id = nid()
+          idMap[b.id] = id
+          return { ...b, id }
+        })
+        return { ...d, dayForks: { ...d.dayForks, [dateIso]: copies } }
+      })
+      return idMap
+    },
+    unforkDay: (dateIso) =>
+      mutate((d) => {
+        const dayForks = { ...d.dayForks }
+        delete dayForks[dateIso]
+        return { ...d, dayForks }
+      }),
+    async addForkBlock(dateIso, position) {
+      const id = nid()
+      await mutate((d) =>
+        mapFork(d, dateIso, (blocks) => [
+          ...blocks,
+          { id, dow: dowMon(new Date(`${dateIso}T00:00:00`)), position, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null },
+        ]),
+      )
+      return id
+    },
+    reorderForkBlocks: (dateIso, orderedIds) =>
+      mutate((d) =>
+        mapFork(d, dateIso, (blocks) =>
           [...blocks].sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id)),
         ),
       ),
@@ -428,7 +483,11 @@ export function useDemoActions(): PlannerActions {
         const todayIso = isoDate(manilaDate(new Date()))
         // Chain after the day's last planned item, ignoring the entry itself.
         const others = d.logEntries.filter((e) => e.id !== entryId)
-        const startMin = nextOneOffStart({ blocksByDow: d.blocksByDow, logEntries: others }, dateIso, todayIso)
+        const startMin = nextOneOffStart(
+          { blocksByDow: d.blocksByDow, logEntries: others, dayForks: d.dayForks },
+          dateIso,
+          todayIso,
+        )
         const position = others.filter((e) => e.onDate === dateIso).reduce((m, e) => Math.max(m, e.position + 1), 0)
         return {
           ...d,
