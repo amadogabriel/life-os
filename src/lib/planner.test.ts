@@ -8,6 +8,7 @@ import {
   fortnightReport,
   isoDate,
   manilaDate,
+  nextOneOffStart,
   onTimelineEntries,
   parseTime,
   pendingMaterializationDates,
@@ -442,9 +443,89 @@ describe('planForDate', () => {
   // Slice #14 (day forks): a future date with a Day Plan fork resolves from the
   // fork's own blocks and is tagged 'fork'; the Template no longer speaks for it.
   it.todo("future day with a Day Plan fork → source 'fork', laid out from the fork (slice #14)")
+
   // Slice #13 (dated one-offs): entries with a future onDate + startMin ride on
   // top of that day's projection without forking it.
-  it.todo('future day merges dated one-off entries into the projection (slice #13)')
+  const oneOff = (over: Partial<LogEntry>): LogEntry =>
+    entry({ id: 'o1', onDate: '2026-07-16', text: 'Sprint task', cat: 'thesis', state: 'open', startMin: 660, durMin: null, position: 0, ...over })
+
+  it("future day merges a dated one-off into the projection — day stays 'projection'", () => {
+    const day = planForDate({ blocksByDow, logEntries: [...logEntries, oneOff({})] }, '2026-07-16', todayIso)
+    expect(day.source).toBe('projection') // riding on top — the day is NOT forked
+    expect(day.items.map((i) => i.key)).toEqual(['block:anchor', 'block:chain', 'entry:o1'])
+    // the projection is untouched; the one-off lands after it at its chained start
+    expect(day.items.map((i) => i.start)).toEqual([540, 630, 660])
+    expect(day.items[2]).toMatchObject({ entryId: 'o1', blockId: null, title: 'Sprint task', cat: 'thesis', durMin: 30, anchored: false })
+  })
+
+  it('re-flows an unanchored one-off landing mid-projection — chained, no overlap', () => {
+    // one-off nominally at 10:00, inside the anchor block (09:00–10:30)
+    const day = planForDate({ blocksByDow, logEntries: [...logEntries, oneOff({ startMin: 600 })] }, '2026-07-16', todayIso)
+    expect(day.items.map((i) => i.key)).toEqual(['block:anchor', 'entry:o1', 'block:chain'])
+    // chains off the anchor's end; the chained Template block re-flows after it
+    expect(day.items.map((i) => i.start)).toEqual([540, 630, 660])
+    expect(day.items.every((i) => !i.conflict)).toBe(true)
+  })
+
+  it('an anchored one-off overrun by the projection is pushed down and flagged', () => {
+    const day = planForDate(
+      { blocksByDow, logEntries: [...logEntries, oneOff({ startMin: 600, anchored: true })] },
+      '2026-07-16',
+      todayIso,
+    )
+    expect(day.items.map((i) => i.key)).toEqual(['block:anchor', 'entry:o1', 'block:chain'])
+    expect(day.items[1].start).toBe(630) // pin at 10:00 not honored — pushed to the anchor's end
+    expect(day.items[1].conflict).toBe(true)
+  })
+
+  it('a one-off on an empty future day is the whole plan', () => {
+    const day = planForDate({ blocksByDow, logEntries: [...logEntries, oneOff({ onDate: '2026-07-17' })] }, '2026-07-17', todayIso)
+    expect(day.source).toBe('projection')
+    expect(day.items.map((i) => i.key)).toEqual(['entry:o1'])
+    expect(day.items[0].start).toBe(660)
+  })
+
+  it('dropped/migrated one-offs no longer ride on the projection; other days are untouched', () => {
+    const entries = [...logEntries, oneOff({ state: 'dropped' }), oneOff({ id: 'o2', state: 'migrated' })]
+    const day = planForDate({ blocksByDow, logEntries: entries }, '2026-07-16', todayIso)
+    expect(day.items.map((i) => i.key)).toEqual(['block:anchor', 'block:chain'])
+    // a one-off belongs only to its own date
+    const friday = planForDate({ blocksByDow, logEntries: [...logEntries, oneOff({})] }, '2026-07-17', todayIso)
+    expect(friday.items).toEqual([])
+  })
+})
+
+describe('nextOneOffStart', () => {
+  const todayIso = '2026-07-15'
+  const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
+  blocksByDow[3] = [
+    b({ id: 'anchor', dow: 3, position: 0, startMin: 540, durMin: 90, anchored: true }),
+    b({ id: 'chain', dow: 3, position: 1, startMin: 0, durMin: 30 }),
+  ]
+  const logEntries: LogEntry[] = [
+    entry({ id: 't1', onDate: todayIso, text: 'Live block', startMin: 480, durMin: 60, state: 'open', position: 0 }),
+    entry({ id: 't2', onDate: todayIso, text: 'Chained today', startMin: 0, durMin: null, state: 'open', position: 1 }),
+  ]
+  const input = { blocksByDow, logEntries }
+
+  it("chains after the last item of a future day's projection", () => {
+    // Thursday projects anchor (540+90) then chain (630+30) → next slot 660
+    expect(nextOneOffStart(input, '2026-07-16', todayIso)).toBe(660)
+  })
+
+  it('chains after one-offs already merged into the day', () => {
+    const withOneOff = { blocksByDow, logEntries: [...logEntries, entry({ id: 'o1', onDate: '2026-07-16', startMin: 660, durMin: 45, state: 'open' })] }
+    expect(nextOneOffStart(withOneOff, '2026-07-16', todayIso)).toBe(705)
+  })
+
+  it("chains after today's live timeline when scheduling to today", () => {
+    // today: 480+60 → chained 540 + default 30 → next slot 570
+    expect(nextOneOffStart(input, todayIso, todayIso)).toBe(570)
+  })
+
+  it('falls back to 09:00 on an empty day', () => {
+    expect(nextOneOffStart(input, '2026-07-17', todayIso)).toBe(540) // Friday — no Template blocks
+  })
 })
 
 describe('reorderWithinSlots', () => {

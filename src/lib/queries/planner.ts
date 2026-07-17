@@ -17,7 +17,15 @@ import type {
   Sprint,
   SprintStatus,
 } from '../planner'
-import { blockLogRowsFromEntries, doneBlockMap, newLogEntry, reorderWithinSlots } from '../planner'
+import {
+  blockLogRowsFromEntries,
+  doneBlockMap,
+  isoDate,
+  manilaDate,
+  newLogEntry,
+  nextOneOffStart,
+  reorderWithinSlots,
+} from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -372,8 +380,15 @@ export interface PlannerActions {
     fields: Partial<Pick<Sprint, 'name' | 'goal' | 'status' | 'startDate' | 'endDate'>>,
   ): Promise<void>
   deleteSprint(id: string): Promise<void>
-  /** Time-box a log entry: create a block on `dow` from the entry and link it. */
-  scheduleBlockFromEntry(entryId: string, dow: number): Promise<void>
+  /** Dated one-off (#13): put an open task onto `dateIso`'s plan. Sets the
+   *  entry's `on_date`, an unanchored `start_min` chained after that day's
+   *  last planned item (`nextOneOffStart`), and a position at the end of the
+   *  day's log. The day itself is never forked — the one-off rides on top of
+   *  its projection (or, for today, joins the live timeline). */
+  scheduleEntryToDate(entryId: string, dateIso: string): Promise<void>
+  /** Undo a dated one-off: clear `start_min` (and its anchor) so the task
+   *  leaves its day's plan and returns to the Sprint work card. */
+  unscheduleEntry(entryId: string): Promise<void>
   addDesignItem(item: { name: string; cat: Cat }, position: number): Promise<string>
   updateDesignItem(id: string, fields: { mins?: number; position?: number }): Promise<void>
   swapDesignItems(a: DesignItem, b: DesignItem): Promise<void>
@@ -886,41 +901,33 @@ export function usePlannerActions(userId: string): PlannerActions {
       if (error) throw error
       await invalidate()
     },
-    async scheduleBlockFromEntry(entryId, dow) {
+    async scheduleEntryToDate(entryId, dateIso) {
       const cache = qc.getQueryData<PlannerData>(plannerKey)
-      const e = cache?.logEntries.find((x) => x.id === entryId)
-      if (!e) return
-      // Optimistic: client-side id lets us patch immediately and skip the
-      // read-back + full refetch, so the button feels instant.
-      const id = crypto.randomUUID()
-      const cat = e.cat === 'open' ? 'work' : e.cat
-      const position = cache?.blocksByDow[dow]?.length ?? 0
+      if (!cache) return
+      const todayIso = isoDate(manilaDate(new Date()))
+      // Chain after the day's last planned item, ignoring the entry itself
+      // (re-scheduling must not chain after its own old slot).
+      const others = cache.logEntries.filter((e) => e.id !== entryId)
+      const startMin = nextOneOffStart({ blocksByDow: cache.blocksByDow, logEntries: others }, dateIso, todayIso)
+      const position = others.filter((e) => e.onDate === dateIso).reduce((m, e) => Math.max(m, e.position + 1), 0)
+      const fields = { onDate: dateIso, startMin, anchored: false, position }
+      patch((d) => ({ ...d, logEntries: d.logEntries.map((e) => (e.id === entryId ? { ...e, ...fields } : e)) }))
+      const { error } = await supabase
+        .from('log_entries')
+        .update({ on_date: dateIso, start_min: startMin, anchored: false, position, updated_at: new Date().toISOString() })
+        .eq('id', entryId)
+      if (error) invalidate()
+    },
+    async unscheduleEntry(entryId) {
       patch((d) => ({
         ...d,
-        blocksByDow: d.blocksByDow.map((bs, i) =>
-          i === dow
-            ? [...bs, { id, dow, position, cat, title: e.text, detail: '', startMin: 720, durMin: 60, anchored: false, deep: false, habitId: null }]
-            : bs,
-        ),
-        logEntries: d.logEntries.map((x) => (x.id === entryId ? { ...x, blockId: id } : x)),
+        logEntries: d.logEntries.map((e) => (e.id === entryId ? { ...e, startMin: null, anchored: false } : e)),
       }))
-      const r1 = await supabase.from('blocks').insert({
-        id,
-        user_id: userId,
-        dow,
-        position,
-        cat,
-        title: e.text,
-        detail: '',
-        start_min: 720,
-        dur_min: 60,
-        anchored: false,
-        deep: false,
-      })
-      const r2 = r1.error
-        ? { error: r1.error }
-        : await supabase.from('log_entries').update({ block_id: id, updated_at: new Date().toISOString() }).eq('id', entryId)
-      if (r1.error || r2.error) invalidate()
+      const { error } = await supabase
+        .from('log_entries')
+        .update({ start_min: null, anchored: false, updated_at: new Date().toISOString() })
+        .eq('id', entryId)
+      if (error) invalidate()
     },
 
     async addDesignItem(item: { name: string; cat: Cat }, position: number) {
