@@ -6,6 +6,9 @@ import { fmt, parseTime, resolve, type Cat } from '../../lib/planner'
 export interface EditingBlock {
   dow: number
   blockId: string
+  /** Set when the block belongs to a Day Plan (whole-day fork) for this ISO
+   *  date rather than the weekday Template — edits stay on the fork. */
+  forkDate?: string
 }
 
 const CUSTOM = '__custom'
@@ -21,7 +24,7 @@ export function BlockModal({
   editing: EditingBlock
   onClose: () => void
 }) {
-  const blocks = data.blocksByDow[editing.dow]
+  const blocks = editing.forkDate ? (data.dayForks[editing.forkDate] ?? []) : data.blocksByDow[editing.dow]
   const index = blocks.findIndex((b) => b.id === editing.blockId)
   const block = blocks[index]
 
@@ -70,7 +73,10 @@ export function BlockModal({
   }
 
   return (
-    <Modal title={`${data.days[editing.dow].name} · edit block`} onClose={onClose}>
+    <Modal
+      title={`${data.days[editing.dow].name}${editing.forkDate ? ' ⑂ (this day only)' : ''} · edit block`}
+      onClose={onClose}
+    >
       <div className="grid grid-cols-2 gap-3">
         <div className="field">
           <label>Bucket</label>

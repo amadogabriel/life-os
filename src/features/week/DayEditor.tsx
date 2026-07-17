@@ -7,29 +7,42 @@ import { BucketModal } from '../design/BucketModal'
 
 /** Design-a-day-style editor for one weekday: the day's blocks on a
  *  proportional timeline (drag to reorder, drag the bottom edge to resize in
- *  30-min snaps), plus the bucket palette to tap-add or drag-in tasks. */
+ *  30-min snaps), plus the bucket palette to tap-add or drag-in tasks.
+ *
+ *  With `forkDate` set it edits that date's Day Plan (whole-day fork) instead
+ *  of the weekday Template — same editor, edits routed to the fork's dated
+ *  Blocks (silently: the fork decision was already made). */
 export function DayEditor({
   data,
   actions,
   dow,
+  forkDate,
   onClose,
   onEditBlock,
 }: {
   data: PlannerData
   actions: PlannerActions
   dow: number
+  forkDate?: string // ISO date of the Day Plan (fork) being edited
   onClose: () => void
   onEditBlock: (blockId: string) => void
 }) {
   const [editingBucket, setEditingBucket] = useState<Bucket | 'new' | null>(null)
-  const blocks = data.blocksByDow[dow]
+  const blocks = forkDate ? (data.dayForks[forkDate] ?? []) : data.blocksByDow[dow]
   const styles = catStyles(data.buckets)
+  const addBlock = (position: number) =>
+    forkDate ? actions.addForkBlock(forkDate, position) : actions.addBlock(dow, position)
+  const reorderBlocks = (ids: string[]) =>
+    forkDate ? actions.reorderForkBlocks(forkDate, ids) : actions.reorderBlocks(dow, ids)
+  const title = forkDate
+    ? `⑂ ${data.days[dow].name.slice(0, 3)} ${new Date(`${forkDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · edit this day only`
+    : `${data.days[dow].name} · edit day`
 
   async function addFromChip(bucketId: string, taskId: string): Promise<string | null> {
     const bucket = data.buckets.find((bk) => bk.id === bucketId)
     const task = bucket?.tasks.find((t) => t.id === taskId)
     if (!bucket || !task) return null
-    const id = await actions.addBlock(dow, blocks.length)
+    const id = await addBlock(blocks.length)
     await actions.updateBlock(id, {
       cat: bucket.cat,
       title: task.name,
@@ -41,7 +54,7 @@ export function DayEditor({
   }
 
   return (
-    <Modal title={`${data.days[dow].name} · edit day`} onClose={onClose} wide>
+    <Modal title={title} onClose={onClose} wide>
       <div className="grid items-start gap-3 max-md:grid-cols-1 md:grid-cols-[1fr_240px]">
         <div className="daycard" style={{ maxHeight: 'calc(90vh - 180px)', overflowY: 'auto' }}>
           <TimelineEditor
@@ -49,7 +62,7 @@ export function DayEditor({
             styles={styles}
             onSetMins={(id, mins) => actions.updateBlock(id, { durMin: mins })}
             onSetStart={(id, startMin) => actions.updateBlock(id, { startMin })}
-            onReorder={(ids) => actions.reorderBlocks(dow, ids)}
+            onReorder={(ids) => reorderBlocks(ids)}
             onRemove={(id) => actions.deleteBlock(id)}
             onTitleClick={onEditBlock}
             onDropExternal={async (payload, at) => {
@@ -58,7 +71,7 @@ export function DayEditor({
               if (id && at < blocks.length) {
                 const ids = blocks.map((b) => b.id)
                 ids.splice(at, 0, id)
-                await actions.reorderBlocks(dow, ids)
+                await reorderBlocks(ids)
               }
             }}
           />
@@ -99,7 +112,7 @@ export function DayEditor({
           <button
             className="addbucket shrink-0"
             onClick={async () => {
-              const id = await actions.addBlock(dow, blocks.length)
+              const id = await addBlock(blocks.length)
               onEditBlock(id)
             }}
           >
