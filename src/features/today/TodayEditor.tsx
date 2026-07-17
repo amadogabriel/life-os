@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { blockStyle, catStyles, depthClass, onTimelineEntries, resolve, stripeVar } from '../../lib/planner'
+import { blockStyle, depthClass, onTimelineEntries, resolve, stripeVar } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
 import { TodayEntryModal } from './TodayEntryModal'
@@ -23,7 +23,6 @@ export function TodayEditor({
 }) {
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const items = onTimelineEntries(data.logEntries, todayIso)
-  const styles = catStyles(data.buckets)
 
   /** Where a freshly-added item lands: right after today's last on-timeline
    *  entry. `startMin` is what marks an entry as "on the timeline" at all
@@ -82,6 +81,9 @@ export function TodayEditor({
           <TimelineEditor
             items={items.map((e) => ({
               id: e.id,
+              // Log Entries carry a Bucket reference (#18) — color resolves live
+              // per-item through it (see `blockStyle`), killing first-bucket-wins.
+              bucketId: e.bucketId,
               cat: e.cat,
               title: e.text,
               startMin: e.startMin ?? 0,
@@ -89,7 +91,7 @@ export function TodayEditor({
               anchored: e.anchored,
               deep: e.deep,
             }))}
-            styles={styles}
+            buckets={data.buckets}
             onSetMins={(id, mins) => actions.updateLogEntry(id, { durMin: mins })}
             onSetStart={(id, startMin) => actions.updateLogEntry(id, { startMin })}
             onReorder={(ids) => actions.reorderLogEntries(todayIso, ids)}

@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { CATS, fmt, onTimelineEntries, parseTime, resolve, type Cat } from '../../lib/planner'
+import { fmt, onTimelineEntries, parseTime, resolve } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 
 /** Edits one entry on a day's plan timeline — today's live plan, or a dated
  *  one-off riding on a future day (then `onUnschedule` offers to clear its
- *  start and send it back to the Sprint work card). Title, category, duration,
+ *  start and send it back to the Sprint work card). Title, bucket, duration,
  *  anchor/start. Writes the Log Entry only; never touches the Template. */
 export function TodayEntryModal({
   data,
@@ -27,7 +27,8 @@ export function TodayEntryModal({
   const entry = items[index]
 
   const [title, setTitle] = useState(entry?.text ?? '')
-  const [cat, setCat] = useState<Cat>(entry?.cat ?? 'open')
+  // The Bucket is the taxonomy (ADR-0003); `cat` is stamped from it on save.
+  const [bucketId, setBucketId] = useState(entry?.bucketId ?? '')
   const [dur, setDur] = useState(entry?.durMin ?? 30)
   const [anchored, setAnchored] = useState(entry?.anchored ?? false)
   const resolvedStart =
@@ -37,8 +38,12 @@ export function TodayEntryModal({
   if (!entry) return null
 
   async function save() {
+    // The Bucket is authoritative; `cat` is stamped from it as derived plumbing
+    // (ADR-0003). No bucket → Unassigned (null, open cat).
+    const bucket = data.buckets.find((bk) => bk.id === bucketId)
     await actions.updateLogEntry(entry.id, {
-      cat,
+      bucketId: bucket?.id ?? null,
+      cat: bucket?.cat ?? 'open',
       text: title.trim() || '(untitled)',
       durMin: Math.max(5, dur || 30),
       anchored,
@@ -60,11 +65,12 @@ export function TodayEntryModal({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="field">
-          <label>Category</label>
-          <select value={cat} onChange={(e) => setCat(e.target.value as Cat)}>
-            {(Object.keys(CATS) as Cat[]).map((c) => (
-              <option key={c} value={c}>
-                {CATS[c]}
+          <label>Bucket</label>
+          <select value={bucketId} onChange={(e) => setBucketId(e.target.value)}>
+            <option value="">Unassigned</option>
+            {data.buckets.map((bk) => (
+              <option key={bk.id} value={bk.id}>
+                {bk.name}
               </option>
             ))}
           </select>

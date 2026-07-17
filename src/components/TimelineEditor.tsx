@@ -1,11 +1,10 @@
 import { useRef, useState, type DragEvent, type PointerEvent } from 'react'
-import { blockStyle, depthClass, fmt, fmtDur, resolve, stripeVar, type BucketColor, type Cat, type CatStyle } from '../lib/planner'
+import { blockStyle, depthClass, fmt, fmtDur, resolve, stripeVar, type BucketColor, type Cat } from '../lib/planner'
 
 export interface TimelineItem {
   id: string
-  // When rendering Blocks, `bucketId` drives live per-bucket color resolution
-  // (with `buckets` below). Entry-backed timelines omit it and fall back to
-  // the cat-keyed `styles`.
+  // `bucketId` drives live per-bucket color resolution (with `buckets` below);
+  // null = Unassigned. `cat` is the stamped derived fallback palette key.
   bucketId?: string | null
   cat: string
   title: string
@@ -39,7 +38,6 @@ export function TimelineEditor({
   onTitleClick,
   onDropExternal,
   emptyHint = 'Tap a task chip (or drag it here) to add.',
-  styles,
   buckets,
 }: {
   items: TimelineItem[]
@@ -52,16 +50,12 @@ export function TimelineEditor({
   onTitleClick?: (id: string) => void
   onDropExternal?: (payload: string, insertIdx: number) => void
   emptyHint?: string
-  /** Cat-keyed styles for entry-backed timelines (no Bucket reference). */
-  styles?: Partial<Record<Cat, CatStyle>>
-  /** When given, items resolve color LIVE per-block through their `bucketId`
-   *  (Blocks) instead of the cat-keyed `styles` — kills first-bucket-wins. */
-  buckets?: BucketColor[]
+  /** Items resolve color LIVE per-item through their `bucketId` (see
+   *  `blockStyle`) — kills first-bucket-wins; null bucket = Unassigned gray. */
+  buckets: BucketColor[]
 }) {
   const itemStyle = (it: TimelineItem) =>
-    buckets
-      ? stripeVar(blockStyle({ bucketId: it.bucketId ?? null, cat: it.cat as Cat }, buckets))
-      : stripeVar(styles?.[it.cat as Cat])
+    stripeVar(blockStyle({ bucketId: it.bucketId ?? null, cat: it.cat as Cat }, buckets))
   const [dragId, setDragId] = useState<string | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
   const [resizing, setResizing] = useState<{

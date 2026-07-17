@@ -4,7 +4,6 @@ import { BujoLegend } from '../../components/BujoLegend'
 import {
   addDays,
   blockStyle,
-  CATS,
   fmtDur,
   isoDate,
   streak,
@@ -153,7 +152,7 @@ export function ReportView({ data, today }: ViewProps) {
                 <div key={c.bucketId} className="litem items-start" style={laneStyle}>
                   <span className={`qname s-${c.cat}`} style={{ ...laneStyle, minWidth: 150, flex: 'none' }}>
                     <span className="dot" />
-                    {bk?.name ?? CATS[c.cat]}
+                    {bk?.name ?? 'Unassigned'}
                   </span>
                   <span className="txt" style={{ color: 'var(--ink-soft)' }}>
                     {c.titles.map((t, j) => (

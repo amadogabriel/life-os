@@ -406,16 +406,6 @@ export interface CatStyle {
   color: string // '' = default palette color for the cat
 }
 
-/** Per-category custom colors derived from the user's buckets. Legacy,
- *  first-bucket-wins, still used to tint cat-keyed things that don't (yet)
- *  carry a Bucket reference — Log Entries (#18), Habits (#19). Blocks resolve
- *  per-reference through `blockStyle`, which kills first-bucket-wins. */
-export function catStyles(buckets: { cat: Cat; color: string }[]): Partial<Record<Cat, CatStyle>> {
-  const map: Partial<Record<Cat, CatStyle>> = {}
-  for (const bk of buckets) if (!map[bk.cat]) map[bk.cat] = { color: bk.color }
-  return map
-}
-
 /** Inline style overriding the stripe color when a custom/resolved one exists. */
 export function stripeVar(style?: CatStyle): Record<string, string> | undefined {
   return style?.color ? { ['--stripe']: style.color } : undefined

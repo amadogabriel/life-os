@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Modal } from '../../components/Modal'
-import { CATS, type Cat, type Habit, type Project, type Sprint } from '../../lib/planner'
+import { type Cat, type Habit, type Project, type Sprint } from '../../lib/planner'
 import type { Bucket } from '../../lib/queries/planner'
 
 /** Fallback hex per category, mirroring the CSS dark-theme palette, so the
@@ -51,7 +51,10 @@ export function BucketModal({
   onClose: () => void
 }) {
   const [name, setName] = useState(bucket?.name ?? '')
-  const [cat, setCat] = useState<Cat>(bucket?.cat ?? 'work')
+  // `cat` is derived write-side plumbing now (ADR-0003) — no user picker. New
+  // buckets default to 'work'; existing buckets keep their stamped cat, which
+  // still feeds the fallback color palette and the `cat` column on save.
+  const cat: Cat = bucket?.cat ?? 'work'
   const [color, setColor] = useState(bucket?.color ?? '')
   // Whether this bucket's hours hit the scoreboard (ADR-0003 #17). New buckets
   // count by default; Life-type recovery buckets get switched off.
@@ -77,34 +80,20 @@ export function BucketModal({
         <label>Name</label>
         <input type="text" maxLength={30} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="field">
-          <label>Category</label>
-          <select value={cat} onChange={(e) => setCat(e.target.value as Cat)}>
-            {(Object.keys(CATS) as Cat[])
-              .filter((k) => k !== 'open')
-              .map((k) => (
-                <option key={k} value={k}>
-                  {CATS[k]}
-                </option>
-              ))}
-          </select>
-        </div>
-        <div className="field">
-          <label>Color</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={color || CAT_HEX[cat]}
-              onChange={(e) => setColor(e.target.value)}
-              style={{ width: 44, height: 32, padding: 2, cursor: 'pointer' }}
-            />
-            {color && (
-              <button type="button" className="btn ghost sm" onClick={() => setColor('')}>
-                Reset
-              </button>
-            )}
-          </div>
+      <div className="field">
+        <label>Color</label>
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            value={color || CAT_HEX[cat]}
+            onChange={(e) => setColor(e.target.value)}
+            style={{ width: 44, height: 32, padding: 2, cursor: 'pointer' }}
+          />
+          {color && (
+            <button type="button" className="btn ghost sm" onClick={() => setColor('')}>
+              Reset
+            </button>
+          )}
         </div>
       </div>
       <div className="field">
