@@ -136,6 +136,7 @@ Deno.serve(async (req) => {
 
     return json({ ok: true, day, journaled, notesFiled })
   } catch (e) {
-    return json({ error: String(e) }, 500)
+    console.error("notion-sync failed:", e)
+    return json({ error: "internal server error" }, 500)
   }
 })
