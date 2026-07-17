@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  blockLogRowsFromEntries,
+  doneBlockMap,
   dowMon,
   fmt,
   fmtDur,
   fortnightReport,
   isoDate,
   parseTime,
+  pendingMaterializationDates,
   resolve,
   streak,
   weekDates,
   weekStats,
   windowAccomplishments,
   type Block,
-  type BlockLogRow,
   type Habit,
   type LogEntry,
   type LogMap,
@@ -173,57 +175,104 @@ describe('fortnightReport', () => {
   })
 })
 
-describe('windowAccomplishments', () => {
-  const row = (over: Partial<BlockLogRow>): BlockLogRow => ({
-    blockId: 'b',
-    dateIso: '2026-07-15',
-    title: 'Deep work',
-    cat: 'work',
-    durMin: 60,
-    deep: false,
-    ...over,
-  })
-  const entry = (over: Partial<LogEntry>): LogEntry => ({
-    id: 'e',
-    onDate: '2026-07-15',
-    kind: 'task',
-    state: 'done',
-    signifier: '',
-    text: 't',
-    cat: 'open',
-    blockId: null,
-    migratedTo: null,
-    projectId: null,
-    sprintId: null,
-    position: 0,
-    ...over,
-  })
+const entry = (over: Partial<LogEntry>): LogEntry => ({
+  id: 'e',
+  onDate: '2026-07-15',
+  kind: 'task',
+  state: 'done',
+  signifier: '',
+  text: 't',
+  cat: 'open',
+  blockId: null,
+  migratedTo: null,
+  projectId: null,
+  sprintId: null,
+  position: 0,
+  durMin: null,
+  deep: false,
+  ...over,
+})
 
+/** A frozen, block-sourced done entry (materialized then checked off). */
+const blockEntry = (over: Partial<LogEntry>): LogEntry =>
+  entry({ blockId: 'a', durMin: 60, cat: 'work', text: 'Deep work', ...over })
+
+describe('windowAccomplishments', () => {
   it('groups completed blocks by commitment and counts repeats', () => {
-    const rows = [
-      row({ blockId: 'a', title: 'Math focus', cat: 'math', deep: true }),
-      row({ blockId: 'b', dateIso: '2026-07-14', title: 'Math focus', cat: 'math', deep: true }),
-      row({ blockId: 'c', title: 'Sleep', cat: 'life' }), // excluded (life)
+    const entries = [
+      blockEntry({ id: 'a', blockId: 'a', text: 'Math focus', cat: 'math', deep: true }),
+      blockEntry({ id: 'b', blockId: 'b', onDate: '2026-07-14', text: 'Math focus', cat: 'math', deep: true }),
+      blockEntry({ id: 'c', blockId: 'c', text: 'Sleep', cat: 'life' }), // excluded (life)
     ]
-    const acc = windowAccomplishments(rows, [], '2026-07-02', '2026-07-15')
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15')
     expect(acc.byCat).toHaveLength(1)
     expect(acc.byCat[0].cat).toBe('math')
     expect(acc.byCat[0].titles[0]).toEqual({ title: 'Math focus', count: 2, deep: true })
     expect(acc.deepSessions).toBe(2)
     expect(acc.totalBlocks).toBe(2)
+    // block-sourced done entries are "blocks", not hand-typed tasks
+    expect(acc.tasksDone).toBe(0)
   })
 
-  it('counts done tasks, events and migrations, ignoring out-of-window rows', () => {
+  it('counts hand-typed done tasks, events and migrations, ignoring out-of-window rows', () => {
     const entries = [
-      entry({ id: '1', kind: 'task', state: 'done' }),
+      entry({ id: '1', kind: 'task', state: 'done' }), // hand-typed (durMin null)
       entry({ id: '2', kind: 'task', state: 'migrated' }),
       entry({ id: '3', kind: 'event', state: 'open' }),
       entry({ id: '4', kind: 'task', state: 'open' }), // still open, not counted
       entry({ id: '5', kind: 'task', state: 'done', onDate: '2026-06-01' }), // out of window
+      blockEntry({ id: '6' }), // a done block — a "block", not a hand-typed task
     ]
-    const acc = windowAccomplishments([], entries, '2026-07-02', '2026-07-15')
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15')
     expect(acc.tasksDone).toBe(1)
     expect(acc.migrated).toBe(1)
     expect(acc.events).toBe(1)
+    expect(acc.totalBlocks).toBe(1)
+  })
+})
+
+describe('doneBlockMap', () => {
+  it('maps on_date -> block_id for done, block-linked entries only', () => {
+    const map = doneBlockMap([
+      blockEntry({ id: '1', blockId: 'b1', onDate: '2026-07-15' }),
+      blockEntry({ id: '2', blockId: 'b2', onDate: '2026-07-15', state: 'open' }), // open — excluded
+      entry({ id: '3', blockId: null, state: 'done' }), // no block — excluded
+    ])
+    expect(map).toEqual({ '2026-07-15': { b1: true } })
+  })
+})
+
+describe('blockLogRowsFromEntries', () => {
+  it('projects done block-sourced entries into frozen snapshot rows', () => {
+    const rows = blockLogRowsFromEntries([
+      blockEntry({ id: '1', blockId: 'b1', text: 'Math', cat: 'math', durMin: 90, deep: true }),
+      blockEntry({ id: '2', state: 'open' }), // open — not an accomplishment
+      entry({ id: '3', state: 'done' }), // hand-typed — no frozen duration
+    ])
+    expect(rows).toEqual([
+      { blockId: 'b1', dateIso: '2026-07-15', title: 'Math', cat: 'math', durMin: 90, deep: true },
+    ])
+  })
+})
+
+describe('pendingMaterializationDates', () => {
+  it('returns just today on first run (no lastSeen)', () => {
+    expect(pendingMaterializationDates(null, '2026-07-17')).toEqual(['2026-07-17'])
+  })
+  it('is empty when already caught up today', () => {
+    expect(pendingMaterializationDates('2026-07-17', '2026-07-17')).toEqual([])
+  })
+  it('fills every missed day through today inclusive', () => {
+    expect(pendingMaterializationDates('2026-07-14', '2026-07-17')).toEqual([
+      '2026-07-15',
+      '2026-07-16',
+      '2026-07-17',
+    ])
+  })
+  it('is empty when the clock ran backwards', () => {
+    expect(pendingMaterializationDates('2026-07-20', '2026-07-17')).toEqual([])
+  })
+  it('crosses a month boundary correctly', () => {
+    expect(pendingMaterializationDates('2026-07-30', '2026-08-01')).toEqual(['2026-07-31', '2026-08-01'])
   })
 })

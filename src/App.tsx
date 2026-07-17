@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSession } from './lib/useSession'
 import { hasSupabaseEnv } from './lib/supabase'
 import { usePlanner, usePlannerActions, type PlannerData, type PlannerActions } from './lib/queries/planner'
+import { pendingMaterializationDates } from './lib/planner'
 import { useDemoActions, useDemoPlanner } from './lib/queries/demo'
 import { SignIn } from './features/auth/SignIn'
 import { TodayView } from './features/today/TodayView'
@@ -87,6 +88,27 @@ function PlannerShell({
   const [tab, setTab] = useState<Tab>('Today')
   const today = new Date()
   const viewProps: ViewProps = { data, actions, today }
+
+  const didCatchUp = useRef(false)
+  useEffect(() => {
+    if (didCatchUp.current) return
+    didCatchUp.current = true
+    const todayManila = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+    const seenKey = `life-os-last-materialize-${demo ? 'demo' : email}`
+    const lastSeen = localStorage.getItem(seenKey)
+    const pending = pendingMaterializationDates(lastSeen, todayManila)
+    ;(async () => {
+      for (const d of pending) {
+        try {
+          await actions.materializeDay(d)
+        } catch {
+          /* best-effort backstop */
+        }
+      }
+      localStorage.setItem(seenKey, todayManila)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="mx-auto max-w-[1120px] px-[22px] pb-[100px]">

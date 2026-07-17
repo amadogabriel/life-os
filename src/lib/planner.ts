@@ -66,7 +66,8 @@ export type LogKind = 'task' | 'event' | 'note'
 export type LogState = 'open' | 'done' | 'migrated' | 'scheduled' | 'dropped'
 export type LogSignifier = '' | 'priority' | 'inspiration'
 
-/** A single rapid-logged item on a given (local) day — the permanent record. */
+/** A single item on a given (local) day — the permanent record. Either
+ *  rapid-logged by hand or frozen from a plan Block by `materialize_day`. */
 export interface LogEntry {
   id: string
   onDate: string // ISO local date (YYYY-MM-DD)
@@ -80,6 +81,31 @@ export interface LogEntry {
   projectId: string | null
   sprintId: string | null
   position: number
+  // Frozen from the source Block when materialized; null/false for hand-typed
+  // entries. `durMin != null` marks an entry as a frozen block accomplishment.
+  durMin: number | null
+  deep: boolean
+}
+
+/** A Log Entry with sensible defaults (hand-typed, open task); overrides win.
+ *  The single constructor both backends use, so cloud and demo build entries
+ *  identically. */
+export function newLogEntry(over: Partial<LogEntry> & Pick<LogEntry, 'id' | 'onDate'>): LogEntry {
+  return {
+    kind: 'task',
+    state: 'open',
+    signifier: '',
+    text: '',
+    cat: 'open',
+    blockId: null,
+    migratedTo: null,
+    projectId: null,
+    sprintId: null,
+    position: 0,
+    durMin: null,
+    deep: false,
+    ...over,
+  }
 }
 
 // ---------- projects & sprints ----------
@@ -109,7 +135,9 @@ export interface Sprint {
 export const PROJECT_STATUSES: ProjectStatus[] = ['planning', 'active', 'done', 'archived']
 export const SPRINT_STATUSES: SprintStatus[] = ['planning', 'active', 'done']
 
-/** A completed block, frozen as it was at check-off time (block_logs snapshot). */
+/** A completed block, frozen as it stood the day it was planned. Now derived
+ *  from the log-primary record (a done, block-sourced Log Entry) rather than
+ *  the retired `block_logs` table. */
 export interface BlockLogRow {
   blockId: string
   dateIso: string
@@ -117,6 +145,43 @@ export interface BlockLogRow {
   cat: Cat
   durMin: number
   deep: boolean
+}
+
+/** True for a done Log Entry that was frozen from a plan Block (carries a
+ *  frozen duration) — the log-primary replacement for a `block_logs` row. */
+function isBlockAccomplishment(e: LogEntry): boolean {
+  return e.kind === 'task' && e.state === 'done' && e.durMin != null
+}
+
+/**
+ * The done, block-sourced entries as frozen block snapshots — the log-primary
+ * source for the accomplishment report and the past Daily Log's completed list
+ * (replaces reading the retired `block_logs` table).
+ */
+export function blockLogRowsFromEntries(entries: LogEntry[]): BlockLogRow[] {
+  return entries.filter(isBlockAccomplishment).map((e) => ({
+    blockId: e.blockId ?? '',
+    dateIso: e.onDate,
+    title: e.text,
+    cat: e.cat,
+    durMin: e.durMin ?? 0,
+    deep: e.deep,
+  }))
+}
+
+/**
+ * `{ [on_date]: { [block_id]: true } }` for every block whose entry is done —
+ * the log-primary source of a block's checked state (replaces `block_logs`).
+ * Drives the Today/Week checkboxes and completion stats.
+ */
+export function doneBlockMap(entries: LogEntry[]): LogMap {
+  const map: LogMap = {}
+  for (const e of entries) {
+    if (e.blockId && e.kind === 'task' && e.state === 'done') {
+      ;(map[e.onDate] ??= {})[e.blockId] = true
+    }
+  }
+  return map
 }
 
 /** Ryder-Carroll bullet for an entry, factoring in kind + state. */
@@ -217,6 +282,24 @@ export function addDays(d: Date, off: number): Date {
 export function weekDates(today: Date): Date[] {
   const mondayOff = -dowMon(today)
   return Array.from({ length: 7 }, (_, i) => addDays(today, mondayOff + i))
+}
+
+/**
+ * Local dates (YYYY-MM-DD) still needing a Materialize freeze on app open:
+ * every day after `lastSeen` through `today` inclusive. Empty when already
+ * caught up (or the clock ran backwards); first run (no `lastSeen`) freezes
+ * just today. Both args are Asia/Manila local dates — the caller derives them.
+ */
+export function pendingMaterializationDates(lastSeen: string | null, today: string): string[] {
+  if (!lastSeen) return [today]
+  if (lastSeen >= today) return [] // caught up today, or clock skew
+  const out: string[] = []
+  let d = addDays(new Date(`${lastSeen}T00:00:00`), 1)
+  while (isoDate(d) <= today) {
+    out.push(isoDate(d))
+    d = addDays(d, 1)
+  }
+  return out
 }
 
 // ---------- block re-flow ----------
@@ -423,12 +506,13 @@ export interface Accomplishments {
 
 /**
  * What real work was completed in the inclusive [startIso, endIso] window,
- * from the frozen block-log snapshots and the bullet-journal entries. Blocks
- * are grouped by commitment with their distinct titles (× repeat count);
- * `life`/`open` are excluded. This is the accomplishment view — not hours.
+ * read log-primary from the Daily Log. Done, block-sourced entries (carrying a
+ * frozen duration) are the "blocks" — grouped by commitment with their distinct
+ * titles (× repeat count); `life`/`open` are excluded. Hand-typed done tasks
+ * (no frozen duration) are counted separately as `tasksDone`, so ticking a
+ * block is never double-counted. This is the accomplishment view — not hours.
  */
 export function windowAccomplishments(
-  blockLogRows: BlockLogRow[],
   logEntries: LogEntry[],
   startIso: string,
   endIso: string,
@@ -438,7 +522,7 @@ export function windowAccomplishments(
   let totalBlocks = 0
   let deepSessions = 0
 
-  for (const r of blockLogRows) {
+  for (const r of blockLogRowsFromEntries(logEntries)) {
     if (!inWin(r.dateIso) || !COUNTED.includes(r.cat)) continue
     totalBlocks++
     if (r.deep) deepSessions++
@@ -463,7 +547,9 @@ export function windowAccomplishments(
   let migrated = 0
   for (const e of logEntries) {
     if (!inWin(e.onDate)) continue
-    if (e.kind === 'task' && e.state === 'done') tasksDone++
+    // Block-sourced done entries are the "blocks" above; only hand-typed done
+    // tasks (no frozen duration) add to the tasks tally.
+    if (e.kind === 'task' && e.state === 'done' && e.durMin == null) tasksDone++
     else if (e.kind === 'task' && e.state === 'migrated') migrated++
     if (e.kind === 'event') events++
   }

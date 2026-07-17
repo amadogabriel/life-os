@@ -46,9 +46,9 @@ export function TodayView({ data, actions, today }: ViewProps) {
 
   const todaysHabits = data.habits.filter((h) => h.days.includes(dow))
   // Todos & brain-dump are bullet-journal log entries (shared with the Log tab).
-  const openTaskEntries = data.logEntries.filter((e) => e.kind === 'task' && e.state === 'open')
+  const openTaskEntries = data.logEntries.filter((e) => e.kind === 'task' && e.state === 'open' && e.blockId === null)
   const todoEntries = data.logEntries.filter(
-    (e) => e.kind === 'task' && (e.state === 'open' || (e.state === 'done' && e.onDate === todayIso)),
+    (e) => e.kind === 'task' && e.blockId === null && (e.state === 'open' || (e.state === 'done' && e.onDate === todayIso)),
   )
   const todayNotes = data.logEntries.filter((e) => e.kind === 'note' && e.onDate === todayIso)
   const deepMins = resolved.filter((r) => r.block.deep).reduce((x, r) => x + r.block.durMin, 0)
@@ -172,9 +172,14 @@ export function TodayView({ data, actions, today }: ViewProps) {
         <Card
           title="Today's plan"
           action={
-            <button className="bk-edit" title="Design today" onClick={() => setEditingDay(dow)}>
-              ✎
-            </button>
+            <div className="flex gap-1">
+              <button className="bk-edit" title="Pull today's plan into the log again" onClick={() => actions.materializeDay(todayIso)}>
+                ↻
+              </button>
+              <button className="bk-edit" title="Design today" onClick={() => setEditingDay(dow)}>
+                ✎
+              </button>
+            </div>
           }
         >
           <div style={{ columns: 2, columnGap: 0 }}>

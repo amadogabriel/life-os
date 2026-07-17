@@ -104,7 +104,7 @@ export function ReportView({ data, today }: ViewProps) {
 
       <div className="flex flex-col gap-4">
         {periods.map((p) => {
-          const acc = windowAccomplishments(data.blockLogRows, data.logEntries, p.startIso, p.endIso)
+          const acc = windowAccomplishments(data.logEntries, p.startIso, p.endIso)
           let habitsDone = 0
           const activeSet = new Set<string>()
           for (const iso of Object.keys(data.habitLogs)) {
@@ -117,7 +117,7 @@ export function ReportView({ data, today }: ViewProps) {
           for (const r of data.blockLogRows) if (r.dateIso >= p.startIso && r.dateIso <= p.endIso) activeSet.add(r.dateIso)
           const wins = data.logEntries
             .filter((e) => e.onDate >= p.startIso && e.onDate <= p.endIso)
-            .filter((e) => (e.kind === 'task' && e.state === 'done') || e.kind === 'event')
+            .filter((e) => (e.kind === 'task' && e.state === 'done' && e.durMin == null) || e.kind === 'event')
             .sort((a, b) => b.onDate.localeCompare(a.onDate))
           const quiet = acc.totalBlocks === 0 && wins.length === 0 && habitsDone === 0
 

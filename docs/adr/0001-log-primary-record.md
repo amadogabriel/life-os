@@ -33,3 +33,7 @@ row. `block_logs` is retired to a read-only backup.
   cron and the client (RPC), so the logic is never duplicated across DB and TS.
 - A frozen day is sealed against Template edits; "pull today's plan again" is
   add-only and idempotent.
+- `materialize_day` does **not** freeze `life`-category Blocks (sleep, meals):
+  they aren't checkable commitments and would otherwise sit forever open in the
+  Migration ritual. They can still be checked off manually (the check-off
+  inserts their entry on demand), and the report already excludes `life`.

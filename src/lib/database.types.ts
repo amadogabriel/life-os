@@ -300,6 +300,8 @@ export type Database = {
           block_id: string | null
           cat: string
           created_at: string
+          deep: boolean
+          dur_min: number | null
           id: string
           kind: string
           migrated_to: string | null
@@ -317,6 +319,8 @@ export type Database = {
           block_id?: string | null
           cat?: string
           created_at?: string
+          deep?: boolean
+          dur_min?: number | null
           id?: string
           kind?: string
           migrated_to?: string | null
@@ -334,6 +338,8 @@ export type Database = {
           block_id?: string | null
           cat?: string
           created_at?: string
+          deep?: boolean
+          dur_min?: number | null
           id?: string
           kind?: string
           migrated_to?: string | null
@@ -526,7 +532,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      materialize_day: { Args: { d: string; uid: string }; Returns: number }
     }
     Enums: {
       [_ in never]: never

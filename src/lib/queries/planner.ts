@@ -17,6 +17,7 @@ import type {
   Sprint,
   SprintStatus,
 } from '../planner'
+import { blockLogRowsFromEntries, doneBlockMap, newLogEntry } from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -66,9 +67,9 @@ export interface DesignItem {
 export interface PlannerData {
   days: Day[] // index = dow (0 = Monday)
   blocksByDow: Block[][] // index = dow, sorted by position
-  blockLogs: LogMap
-  blockLogRows: BlockLogRow[] // frozen snapshots of completed blocks, for the record
-  logEntries: LogEntry[] // bullet-journal entries, sorted by (on_date, position)
+  blockLogs: LogMap // derived from log entries: on_date -> done block ids
+  blockLogRows: BlockLogRow[] // derived: done block-sourced entries as frozen snapshots
+  logEntries: LogEntry[] // the log-primary record, sorted by (on_date, position)
   projects: Project[]
   sprints: Sprint[]
   habits: Habit[]
@@ -158,11 +159,10 @@ async function seedDefaults(userId: string): Promise<void> {
 }
 
 async function fetchPlanner(userId: string): Promise<PlannerData> {
-  const [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile] =
+  const [days, blocks, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile] =
     await Promise.all([
       supabase.from('days').select('*').order('dow'),
       supabase.from('blocks').select('*').order('dow').order('position'),
-      supabase.from('block_logs').select('*'),
       supabase.from('habits').select('*').order('position'),
       supabase.from('habit_logs').select('*'),
       supabase.from('buckets').select('*').order('position'),
@@ -175,7 +175,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       supabase.from('sprints').select('*').order('position'),
       supabase.from('profiles').select('*').maybeSingle(),
     ])
-  const results = [days, blocks, blockLogs, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile]
+  const results = [days, blocks, habits, habitLogs, buckets, bucketTasks, designItems, todos, dumps, logEntries, projects, sprints, profile]
   for (const r of results) if (r.error) throw r.error
 
   if (!days.data || days.data.length === 0) {
@@ -208,32 +208,30 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     taskByBucket.set(t.bucket_id, list)
   }
 
+  const entries: LogEntry[] = logEntries.data!.map((e) => ({
+    id: e.id,
+    onDate: e.on_date,
+    kind: e.kind as LogKind,
+    state: e.state as LogState,
+    signifier: e.signifier as LogSignifier,
+    text: e.text,
+    cat: e.cat as Cat,
+    blockId: e.block_id,
+    migratedTo: e.migrated_to,
+    projectId: e.project_id,
+    sprintId: e.sprint_id,
+    position: e.position,
+    durMin: e.dur_min,
+    deep: e.deep,
+  }))
+
   return {
     days: days.data.map((d) => ({ dow: d.dow, name: d.name, loc: d.loc })),
     blocksByDow,
-    blockLogs: toLogMap(blockLogs.data!, 'block_id'),
-    blockLogRows: blockLogs.data!.map((r) => ({
-      blockId: r.block_id,
-      dateIso: r.done_on,
-      title: r.title,
-      cat: r.cat as Cat,
-      durMin: r.dur_min,
-      deep: r.deep,
-    })),
-    logEntries: logEntries.data!.map((e) => ({
-      id: e.id,
-      onDate: e.on_date,
-      kind: e.kind as LogKind,
-      state: e.state as LogState,
-      signifier: e.signifier as LogSignifier,
-      text: e.text,
-      cat: e.cat as Cat,
-      blockId: e.block_id,
-      migratedTo: e.migrated_to,
-      projectId: e.project_id,
-      sprintId: e.sprint_id,
-      position: e.position,
-    })),
+    // Log-primary: block state lives in the Daily Log, not the retired block_logs.
+    blockLogs: doneBlockMap(entries),
+    blockLogRows: blockLogRowsFromEntries(entries),
+    logEntries: entries,
     projects: projects.data!.map((p) => ({
       id: p.id,
       name: p.name,
@@ -295,6 +293,10 @@ export function usePlanner(userId: string) {
 export interface PlannerActions {
   toggleBlockLog(blockId: string, dateIso: string): Promise<void>
   toggleHabitLog(habitId: string, dateIso: string): Promise<void>
+  /** Freeze `dateIso`'s planned Blocks into the Daily Log as open task entries
+   *  (idempotent, add-only). Serves both the "pull today's plan again" action
+   *  and the on-open catch-up. Returns the number of newly-frozen entries. */
+  materializeDay(dateIso: string): Promise<number>
   addBlock(dow: number, position: number): Promise<string>
   updateBlock(
     id: string,
@@ -386,25 +388,72 @@ export function usePlannerActions(userId: string): PlannerActions {
 
   return {
     async toggleBlockLog(blockId: string, dateIso: string) {
-      const on = patchLog('blockLogs', blockId, dateIso)
-      // Freeze the block's current shape onto the log so the finished day
-      // stays a faithful record even if the template is edited later.
-      const blk = qc.getQueryData<PlannerData>(plannerKey)?.blocksByDow.flat().find((b) => b.id === blockId)
-      const { error } = on
-        ? await supabase.from('block_logs').upsert({
+      // Log-primary: checking a Block flips its Daily Log entry open<->done; it
+      // no longer writes a parallel block_logs row.
+      const cache = qc.getQueryData<PlannerData>(plannerKey)
+      const existing = cache?.logEntries.find((e) => e.blockId === blockId && e.onDate === dateIso)
+      const blk = cache?.blocksByDow.flat().find((b) => b.id === blockId)
+      const on = existing?.state !== 'done' // clicking a not-done entry marks it done
+      const nowIso = new Date().toISOString()
+      const position = (cache?.logEntries ?? [])
+        .filter((e) => e.onDate === dateIso)
+        .reduce((m, e) => Math.max(m, e.position + 1), 0)
+
+      // Optimistic: flip (or insert) the entry, then re-derive the checked map.
+      patch((data) => {
+        const logEntries = existing
+          ? data.logEntries.map((e) =>
+              e.id === existing.id ? { ...e, state: (on ? 'done' : 'open') as LogState } : e,
+            )
+          : [
+              ...data.logEntries,
+              newLogEntry({
+                id: `optimistic-${blockId}-${dateIso}`,
+                onDate: dateIso,
+                state: 'done',
+                text: blk?.title ?? '',
+                cat: blk?.cat ?? 'open',
+                blockId,
+                position,
+                durMin: blk?.durMin ?? null,
+                deep: blk?.deep ?? false,
+              }),
+            ]
+        return { ...data, logEntries, blockLogs: doneBlockMap(logEntries) }
+      })
+
+      let error
+      if (existing) {
+        error = (
+          await supabase
+            .from('log_entries')
+            .update({ state: on ? 'done' : 'open', updated_at: nowIso })
+            .eq('id', existing.id)
+        ).error
+      } else {
+        // Edge: this block's day wasn't frozen yet (e.g. checked before the
+        // freeze reached it, or a life block that is never auto-materialized).
+        // Freeze just this block's entry as done — never touching siblings.
+        error = (
+          await supabase.from('log_entries').insert({
             user_id: userId,
+            on_date: dateIso,
+            kind: 'task',
+            state: 'done',
+            text: blk?.title ?? '',
+            cat: blk?.cat ?? 'open',
             block_id: blockId,
-            done_on: dateIso,
-            title: blk?.title ?? '',
-            cat: blk?.cat ?? '',
-            dur_min: blk?.durMin ?? 0,
+            dur_min: blk?.durMin ?? null,
             deep: blk?.deep ?? false,
+            position,
           })
-        : await supabase.from('block_logs').delete().eq('block_id', blockId).eq('done_on', dateIso)
+        ).error
+      }
       if (error) {
         invalidate()
         return
       }
+
       // Mirror a linked habit: checking the block logs the habit for the day,
       // un-checking removes it (only when the habit isn't already in that state).
       if (blk?.habitId) {
@@ -417,6 +466,17 @@ export function usePlannerActions(userId: string): PlannerActions {
           if (hErr) invalidate()
         }
       }
+
+      // Inserted a fresh entry above with a placeholder id — reconcile to get
+      // the real row (and refreshed report snapshots).
+      if (!existing) await invalidate()
+    },
+
+    async materializeDay(dateIso: string) {
+      const { data, error } = await supabase.rpc('materialize_day', { uid: userId, d: dateIso })
+      if (error) throw error
+      await invalidate()
+      return data ?? 0
     },
     async toggleHabitLog(habitId: string, dateIso: string) {
       const on = patchLog('habitLogs', habitId, dateIso)

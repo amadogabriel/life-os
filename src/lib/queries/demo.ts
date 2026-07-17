@@ -2,7 +2,8 @@
 // layer, but the whole planner lives in localStorage. Active when no Supabase
 // env is configured — lets you run and click through the app with no project.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Block, BlockLogRow, Cat, LogState } from '../planner'
+import type { Block, Cat, LogEntry, LogState } from '../planner'
+import { blockLogRowsFromEntries, doneBlockMap, dowMon, newLogEntry } from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -60,23 +61,15 @@ function buildDemoData(): PlannerData {
   }
 }
 
-/** Frozen completed-block rows, derived from the check-off map + current blocks. */
-function deriveBlockLogRows(d: PlannerData): BlockLogRow[] {
-  const byId = new Map<string, Block>()
-  d.blocksByDow.flat().forEach((b) => byId.set(b.id, b))
-  const rows: BlockLogRow[] = []
-  for (const [dateIso, ids] of Object.entries(d.blockLogs)) {
-    for (const blockId of Object.keys(ids)) {
-      const b = byId.get(blockId)
-      if (b) rows.push({ blockId, dateIso, title: b.title, cat: b.cat, durMin: b.durMin, deep: b.deep })
-    }
-  }
-  return rows
-}
-
-/** Fill in derived fields so consumers always see a consistent snapshot. */
+/** Fill in derived fields so consumers always see a consistent snapshot. The
+ *  Daily Log (logEntries) is the single source of truth; a block's checked
+ *  state and the frozen accomplishment rows are derived from it. */
 function finalize(d: PlannerData): PlannerData {
-  return { ...d, blockLogRows: deriveBlockLogRows(d) }
+  return {
+    ...d,
+    blockLogs: doneBlockMap(d.logEntries),
+    blockLogRows: blockLogRowsFromEntries(d.logEntries),
+  }
 }
 
 function load(): PlannerData {
@@ -140,14 +133,36 @@ export function useDemoActions(): PlannerActions {
   return {
     toggleBlockLog: (id, dateIso) =>
       mutate((d) => {
-        const blockLogs = { ...d.blockLogs }
-        const day = { ...(blockLogs[dateIso] ?? {}) }
-        const on = !day[id]
-        if (on) day[id] = true
-        else delete day[id]
-        blockLogs[dateIso] = day
-        // Mirror a linked habit's log in the same direction.
+        // Log-primary: flip the block's Daily Log entry open<->done (creating it
+        // if the day wasn't frozen yet). blockLogs is derived in finalize().
+        const existing = d.logEntries.find((e) => e.blockId === id && e.onDate === dateIso)
         const blk = d.blocksByDow.flat().find((b) => b.id === id)
+        const on = existing?.state !== 'done'
+        let logEntries: LogEntry[]
+        if (existing) {
+          logEntries = d.logEntries.map((e) =>
+            e.id === existing.id ? { ...e, state: (on ? 'done' : 'open') as LogState } : e,
+          )
+        } else {
+          const position = d.logEntries
+            .filter((e) => e.onDate === dateIso)
+            .reduce((m, e) => Math.max(m, e.position + 1), 0)
+          logEntries = [
+            ...d.logEntries,
+            newLogEntry({
+              id: nid(),
+              onDate: dateIso,
+              state: 'done',
+              text: blk?.title ?? '',
+              cat: blk?.cat ?? 'open',
+              blockId: id,
+              position,
+              durMin: blk?.durMin ?? null,
+              deep: blk?.deep ?? false,
+            }),
+          ]
+        }
+        // Mirror a linked habit's log in the same direction.
         let habitLogs = d.habitLogs
         if (blk?.habitId) {
           const hday = { ...(habitLogs[dateIso] ?? {}) }
@@ -155,9 +170,36 @@ export function useDemoActions(): PlannerActions {
           else delete hday[blk.habitId]
           habitLogs = { ...habitLogs, [dateIso]: hday }
         }
-        return { ...d, blockLogs, habitLogs }
+        return { ...d, logEntries, habitLogs }
       }),
     toggleHabitLog: (id, dateIso) => toggle('habitLogs', id, dateIso),
+    async materializeDay(dateIso) {
+      let count = 0
+      await mutate((d) => {
+        const dow = dowMon(new Date(`${dateIso}T00:00:00`))
+        const frozen = new Set(d.logEntries.filter((e) => e.onDate === dateIso && e.blockId).map((e) => e.blockId))
+        const toAdd = (d.blocksByDow[dow] ?? []).filter((b) => b.cat !== 'life' && !frozen.has(b.id))
+        let position = d.logEntries
+          .filter((e) => e.onDate === dateIso)
+          .reduce((m, e) => Math.max(m, e.position + 1), 0)
+        const added: LogEntry[] = toAdd.map((b) =>
+          newLogEntry({
+            id: nid(),
+            onDate: dateIso,
+            state: 'open',
+            text: b.title,
+            cat: b.cat,
+            blockId: b.id,
+            position: position++,
+            durMin: b.durMin,
+            deep: b.deep,
+          }),
+        )
+        count = added.length
+        return { ...d, logEntries: [...d.logEntries, ...added] }
+      })
+      return count
+    },
 
     async addBlock(dow, position) {
       const id = nid()
@@ -269,6 +311,8 @@ export function useDemoActions(): PlannerActions {
               projectId: entry.projectId ?? null,
               sprintId: entry.sprintId ?? null,
               position,
+              durMin: null,
+              deep: false,
             },
           ],
         }
@@ -305,6 +349,8 @@ export function useDemoActions(): PlannerActions {
               projectId: null,
               sprintId: null,
               position,
+              durMin: null,
+              deep: false,
             },
           ],
         }
