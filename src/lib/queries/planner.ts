@@ -20,12 +20,13 @@ import type {
 import {
   blockLogRowsFromEntries,
   doneBlockMap,
-  dowMon,
+  dowOfIso,
+  forkCopies,
   isoDate,
   manilaDate,
   newLogEntry,
-  nextOneOffStart,
   reorderWithinSlots,
+  scheduleSlot,
 } from '../planner'
 import {
   DEFAULT_NOTES,
@@ -682,14 +683,9 @@ export function usePlannerActions(userId: string): PlannerActions {
     async forkDay(dateIso: string) {
       const cache = qc.getQueryData<PlannerData>(plannerKey)
       if (cache?.dayForks[dateIso]) return {}
-      const dow = dowMon(new Date(`${dateIso}T00:00:00`))
-      const src = cache?.blocksByDow[dow] ?? []
-      const idMap: Record<string, string> = {}
-      const copies = src.map((b) => {
-        const id = crypto.randomUUID() // client-side ids give us the id map without a read-back
-        idMap[b.id] = id
-        return { ...b, id }
-      })
+      const src = cache?.blocksByDow[dowOfIso(dateIso)] ?? []
+      // Client-side ids give us the Template→fork id map without a read-back.
+      const { copies, idMap } = forkCopies(src, () => crypto.randomUUID())
       patch((data) => ({ ...data, dayForks: { ...data.dayForks, [dateIso]: copies } }))
       const m = await supabase.from('forked_days').insert({ user_id: userId, on_date: dateIso })
       if (m.error) {
@@ -743,7 +739,7 @@ export function usePlannerActions(userId: string): PlannerActions {
         .from('blocks')
         .insert({
           user_id: userId,
-          dow: dowMon(new Date(`${dateIso}T00:00:00`)),
+          dow: dowOfIso(dateIso),
           on_date: dateIso,
           position,
           cat: 'open',
@@ -1045,15 +1041,12 @@ export function usePlannerActions(userId: string): PlannerActions {
       const cache = qc.getQueryData<PlannerData>(plannerKey)
       if (!cache) return
       const todayIso = isoDate(manilaDate(new Date()))
-      // Chain after the day's last planned item, ignoring the entry itself
-      // (re-scheduling must not chain after its own old slot).
-      const others = cache.logEntries.filter((e) => e.id !== entryId)
-      const startMin = nextOneOffStart(
-        { blocksByDow: cache.blocksByDow, logEntries: others, dayForks: cache.dayForks },
+      const { startMin, position } = scheduleSlot(
+        { blocksByDow: cache.blocksByDow, logEntries: cache.logEntries, dayForks: cache.dayForks },
+        entryId,
         dateIso,
         todayIso,
       )
-      const position = others.filter((e) => e.onDate === dateIso).reduce((m, e) => Math.max(m, e.position + 1), 0)
       const fields = { onDate: dateIso, startMin, anchored: false, position }
       patch((d) => ({ ...d, logEntries: d.logEntries.map((e) => (e.id === entryId ? { ...e, ...fields } : e)) }))
       const { error } = await supabase

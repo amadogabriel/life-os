@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Bucket, PlannerActions, PlannerData } from '../../lib/queries/planner'
 import { catStyles, stripeVar } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
@@ -11,12 +11,18 @@ import { BucketModal } from '../design/BucketModal'
  *
  *  With `forkDate` set it edits that date's Day Plan (whole-day fork) instead
  *  of the weekday Template — same editor, edits routed to the fork's dated
- *  Blocks (silently: the fork decision was already made). */
+ *  Blocks (silently: the fork decision was already made).
+ *
+ *  With `lazyForkDate` set (and `forkDate` unset) it previews the weekday
+ *  Template for a still-projected date and forks the day on the first mutating
+ *  edit — so opening it and closing it untouched leaves the day unforked
+ *  (ADR-0002: "looking around never creates data"). */
 export function DayEditor({
   data,
   actions,
   dow,
   forkDate,
+  lazyForkDate,
   onClose,
   onEditBlock,
 }: {
@@ -24,24 +30,60 @@ export function DayEditor({
   actions: PlannerActions
   dow: number
   forkDate?: string // ISO date of the Day Plan (fork) being edited
+  lazyForkDate?: string // ISO date of a projected day to fork on first edit
   onClose: () => void
-  onEditBlock: (blockId: string) => void
+  onEditBlock: (blockId: string, forkDate?: string) => void
 }) {
   const [editingBucket, setEditingBucket] = useState<Bucket | 'new' | null>(null)
-  const blocks = forkDate ? (data.dayForks[forkDate] ?? []) : data.blocksByDow[dow]
+  // Null until this day is a fork — either it was opened as one (`forkDate`) or
+  // a lazy edit just created it. Once set, every edit routes to the fork.
+  const [forkedDate, setForkedDate] = useState<string | null>(forkDate ?? null)
+  const idMap = useRef<Record<string, string>>({})
+  const activeFork = forkedDate
+  const blocks = activeFork ? (data.dayForks[activeFork] ?? []) : data.blocksByDow[dow]
   const styles = catStyles(data.buckets)
-  const addBlock = (position: number) =>
-    forkDate ? actions.addForkBlock(forkDate, position) : actions.addBlock(dow, position)
-  const reorderBlocks = (ids: string[]) =>
-    forkDate ? actions.reorderForkBlocks(forkDate, ids) : actions.reorderBlocks(dow, ids)
-  const title = forkDate
-    ? `⑂ ${data.days[dow].name.slice(0, 3)} ${new Date(`${forkDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · edit this day only`
+
+  /** The fork date edits should target — forking a lazy projected day on first
+   *  use. Returns null when editing the weekday Template ("Every weekday"). */
+  async function targetFork(): Promise<string | null> {
+    if (activeFork) return activeFork
+    if (!lazyForkDate) return null
+    idMap.current = await actions.forkDay(lazyForkDate)
+    setForkedDate(lazyForkDate)
+    return lazyForkDate
+  }
+  /** Retarget a Template block id to its fork copy once the day has forked. */
+  const mapId = (id: string) => idMap.current[id] ?? id
+
+  const addBlock = async (position: number) => {
+    const fd = await targetFork()
+    return fd ? actions.addForkBlock(fd, position) : actions.addBlock(dow, position)
+  }
+  const reorderBlocks = async (ids: string[]) => {
+    const fd = await targetFork()
+    return fd ? actions.reorderForkBlocks(fd, ids.map(mapId)) : actions.reorderBlocks(dow, ids)
+  }
+  const updateBlock = async (id: string, fields: Parameters<PlannerActions['updateBlock']>[1]) => {
+    await targetFork()
+    return actions.updateBlock(mapId(id), fields)
+  }
+  const removeBlock = async (id: string) => {
+    await targetFork()
+    return actions.deleteBlock(mapId(id))
+  }
+  const editBlock = async (id: string) => {
+    const fd = await targetFork()
+    onEditBlock(mapId(id), fd ?? undefined)
+  }
+  const title = activeFork
+    ? `⑂ ${data.days[dow].name.slice(0, 3)} ${new Date(`${activeFork}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · edit this day only`
     : `${data.days[dow].name} · edit day`
 
   async function addFromChip(bucketId: string, taskId: string): Promise<string | null> {
     const bucket = data.buckets.find((bk) => bk.id === bucketId)
     const task = bucket?.tasks.find((t) => t.id === taskId)
     if (!bucket || !task) return null
+    // addBlock forks first if lazy and returns the new block's real id.
     const id = await addBlock(blocks.length)
     await actions.updateBlock(id, {
       cat: bucket.cat,
@@ -60,11 +102,11 @@ export function DayEditor({
           <TimelineEditor
             items={blocks}
             styles={styles}
-            onSetMins={(id, mins) => actions.updateBlock(id, { durMin: mins })}
-            onSetStart={(id, startMin) => actions.updateBlock(id, { startMin })}
+            onSetMins={(id, mins) => updateBlock(id, { durMin: mins })}
+            onSetStart={(id, startMin) => updateBlock(id, { startMin })}
             onReorder={(ids) => reorderBlocks(ids)}
-            onRemove={(id) => actions.deleteBlock(id)}
-            onTitleClick={onEditBlock}
+            onRemove={(id) => removeBlock(id)}
+            onTitleClick={editBlock}
             onDropExternal={async (payload, at) => {
               const [bk, task] = payload.split('|')
               const id = await addFromChip(bk, task)
@@ -112,8 +154,9 @@ export function DayEditor({
           <button
             className="addbucket shrink-0"
             onClick={async () => {
-              const id = await addBlock(blocks.length)
-              onEditBlock(id)
+              const fd = await targetFork()
+              const id = fd ? await actions.addForkBlock(fd, blocks.length) : await actions.addBlock(dow, blocks.length)
+              onEditBlock(id, fd ?? undefined)
             }}
           >
             + Custom block

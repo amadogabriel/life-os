@@ -4,7 +4,7 @@ import {
   addDays,
   catStyles,
   depthClass,
-  dowMon,
+  dowOfIso,
   fmt,
   fmtDur,
   isoDate,
@@ -34,21 +34,27 @@ interface DragVis {
 }
 
 /** A pending edit to a still-projected future day, awaiting the fork prompt's
- *  "Just this ⟨date⟩ / Every ⟨weekday⟩" answer (ADR-0002 ask-on-first-edit). */
+ *  "Just this ⟨date⟩ / Every ⟨weekday⟩" answer (ADR-0002 ask-on-first-edit).
+ *  Each handler owns its own forking: "Every" never forks; "Just this" forks
+ *  only when a real edit actually lands (a drag drop forks-then-applies; the
+ *  day editor defers the fork to its own first mutation), so answering "Just
+ *  this" and then changing nothing leaves the day unforked. */
 interface ForkPrompt {
   di: number // column index === dow
   /** "Every ⟨weekday⟩": apply the edit to the weekday Template, as before. */
-  onTemplate: () => void | Promise<void>
-  /** "Just this ⟨date⟩": the day was just forked; apply the edit to the fork.
-   *  `idMap` maps each source Template Block id to its fork copy's id. */
-  onFork: (idMap: Record<string, string>) => void | Promise<void>
+  onEveryWeek: () => void | Promise<void>
+  /** "Just this ⟨date⟩": fork this date (the handler forks when/if the edit lands). */
+  onJustThis: () => void | Promise<void>
 }
 
-export function WeekView({ data, actions, today }: ViewProps) {
+export function PlannerView({ data, actions, today }: ViewProps) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [editing, setEditing] = useState<EditingBlock | null>(null)
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [editingFork, setEditingFork] = useState<string | null>(null) // ISO date of the fork being edited
+  // A still-projected future day opened for editing after "Just this ⟨date⟩":
+  // the editor previews the Template and forks the day on its first real edit.
+  const [editingProjected, setEditingProjected] = useState<{ dow: number; dateIso: string } | null>(null)
   const [editingToday, setEditingToday] = useState(false)
   // A dated one-off being edited in its future day's column (entry-backed).
   const [editingEntry, setEditingEntry] = useState<{ id: string; dateIso: string } | null>(null)
@@ -81,8 +87,10 @@ export function WeekView({ data, actions, today }: ViewProps) {
   function openProjectedDayEditor(di: number) {
     setForkPrompt({
       di,
-      onTemplate: () => setEditingDay(di),
-      onFork: () => setEditingFork(dayPlans[di].dateIso),
+      onEveryWeek: () => setEditingDay(di),
+      // "Just this" opens the editor on the Template preview; it forks lazily on
+      // the first mutation, so opening and closing it untouched forks nothing.
+      onJustThis: () => setEditingProjected({ dow: di, dateIso: dayPlans[di].dateIso }),
     })
   }
 
@@ -182,13 +190,18 @@ export function WeekView({ data, actions, today }: ViewProps) {
 
   /** Nearest droppable column — never a past or today column. Template blocks
    *  drop only on projection columns; a dated one-off can also land on a
-   *  forked date (it rides on top of the fork the same way). */
+   *  forked date (it rides on top of the fork the same way); a fork's own
+   *  block stays within its column (retime/reorder only). */
   function dayAt(clientX: number): number {
     const rects = press.current?.rects ?? []
     let best = press.current?.dow ?? 0
     let bestDist = Infinity
-    const droppable = (d: number) =>
-      editableCol(d) || (press.current?.entryId != null && dayPlans[d].source === 'fork')
+    const droppable = (d: number) => {
+      if (editableCol(d)) return true
+      if (dayPlans[d].source !== 'fork') return false
+      // Fork column: a one-off from anywhere, or this fork's own block in place.
+      return press.current?.entryId != null || d === press.current?.dow
+    }
     for (let d = 0; d < rects.length; d++) {
       const r = rects[d]
       if (!r || !droppable(d)) continue
@@ -229,8 +242,9 @@ export function WeekView({ data, actions, today }: ViewProps) {
       timer: null as number | null,
       active: false,
       // A one-off drop always pins at the drop time, so it previews (and
-      // behaves) like an anchored block; Template blocks keep their own flag.
-      anchored: it.entryId ? true : (data.blocksByDow[dow].find((b) => b.id === it.blockId)?.anchored ?? false),
+      // behaves) like an anchored block; Template and fork blocks keep their own
+      // flag (the resolved item already carries it).
+      anchored: it.entryId ? true : it.anchored,
       grabDy: 0,
       rects: [] as (DOMRect | null)[],
       target: null as { dow: number; idx: number; min: number } | null,
@@ -282,28 +296,39 @@ export function WeekView({ data, actions, today }: ViewProps) {
       })
       return
     }
+    const dateIso = dayPlans[fromDow].dateIso
+    const srcIsFork = dayPlans[fromDow].source === 'fork'
     if (t.dow === fromDow) {
-      // A drop inside one projected day edits that date's plan → ask first
-      // ("just this date" forks the day, then the same edit lands on the fork).
-      const dateIso = dayPlans[fromDow].dateIso
+      // A drop inside a single day retimes/reorders that day's own plan. On a
+      // projection column it edits the weekday Template → ask first ("just this
+      // date" forks the day, then the same edit lands on the fork). On a fork
+      // column it edits the fork's dated Blocks silently — the fork decision was
+      // already made, so there is nothing to ask.
+      const srcBlocks = srcIsFork ? (data.dayForks[dateIso] ?? []) : data.blocksByDow[fromDow]
       if (anchored) {
         // Vertical drag of a pinned block = move the pin to the drop time,
         // then keep positions sorted by the resulting times.
         const starts = new Map(dayPlans[fromDow].items.map((it) => [it.blockId, it.start]))
         starts.set(id, t.min)
-        const ids = [...data.blocksByDow[fromDow]]
+        const ids = [...srcBlocks]
           .sort((a, b) => starts.get(a.id)! - starts.get(b.id)! || a.position - b.position)
           .map((b) => b.id)
-        const orderChanged = ids.some((x, i) => x !== data.blocksByDow[fromDow][i]?.id)
-        const pinChanged = data.blocksByDow[fromDow].find((b) => b.id === id)?.startMin !== t.min
-        if (!orderChanged && !pinChanged) return // dropped where it was — no edit, no prompt
+        const orderChanged = ids.some((x, i) => x !== srcBlocks[i]?.id)
+        const pinChanged = srcBlocks.find((b) => b.id === id)?.startMin !== t.min
+        if (!orderChanged && !pinChanged) return // dropped where it was — no edit
+        if (srcIsFork) {
+          await actions.updateBlock(id, { startMin: t.min })
+          if (orderChanged) await actions.reorderForkBlocks(dateIso, ids)
+          return
+        }
         setForkPrompt({
           di: fromDow,
-          onTemplate: async () => {
+          onEveryWeek: async () => {
             await actions.updateBlock(id, { startMin: t.min })
             if (orderChanged) await actions.reorderBlocks(fromDow, ids)
           },
-          onFork: async (idMap) => {
+          onJustThis: async () => {
+            const idMap = await actions.forkDay(dateIso)
             if (!idMap[id]) return
             await actions.updateBlock(idMap[id], { startMin: t.min })
             if (orderChanged)
@@ -311,15 +336,22 @@ export function WeekView({ data, actions, today }: ViewProps) {
           },
         })
       } else {
-        const fromIdx = data.blocksByDow[fromDow].findIndex((b) => b.id === id)
-        const ids = data.blocksByDow[fromDow].map((b) => b.id).filter((x) => x !== id)
+        const fromIdx = srcBlocks.findIndex((b) => b.id === id)
+        const ids = srcBlocks.map((b) => b.id).filter((x) => x !== id)
         const idx = fromIdx >= 0 && fromIdx < t.idx ? t.idx - 1 : t.idx
         ids.splice(Math.min(idx, ids.length), 0, id)
-        if (!ids.some((x, i) => x !== data.blocksByDow[fromDow][i]?.id)) return // no change
+        if (!ids.some((x, i) => x !== srcBlocks[i]?.id)) return // no change
+        if (srcIsFork) {
+          await actions.reorderForkBlocks(dateIso, ids)
+          return
+        }
         setForkPrompt({
           di: fromDow,
-          onTemplate: () => actions.reorderBlocks(fromDow, ids),
-          onFork: (idMap) => actions.reorderForkBlocks(dateIso, ids.map((x) => idMap[x]).filter(Boolean)),
+          onEveryWeek: () => actions.reorderBlocks(fromDow, ids),
+          onJustThis: async () => {
+            const idMap = await actions.forkDay(dateIso)
+            await actions.reorderForkBlocks(dateIso, ids.map((x) => idMap[x]).filter(Boolean))
+          },
         })
       }
     } else {
@@ -448,10 +480,11 @@ export function WeekView({ data, actions, today }: ViewProps) {
                   // dated one-off riding on the base plan — its edits go to
                   // the Log Entry, never the Template or the fork.
                   const isOneOff = (editable || isFork) && it.entryId !== null
-                  // Template blocks drag on projection columns; one-offs drag
-                  // there and on fork columns. Fork blocks are edited via the
-                  // fork's day editor, not dragged.
-                  const draggable = editable || isOneOff
+                  // Template blocks and one-offs drag on projection columns; a
+                  // fork's own blocks and one-offs drag on fork columns (edits
+                  // route silently to the fork). A plain tap still opens the
+                  // relevant editor. Past/today items don't drag.
+                  const draggable = editable || isFork || isOneOff
                   const isDragging = draggable && dragVis?.id === (it.entryId ?? it.blockId)
                   // Past columns render the frozen plan: times/titles only — no
                   // done/undone styling, no drag or edit affordances. Fork
@@ -565,16 +598,26 @@ export function WeekView({ data, actions, today }: ViewProps) {
           onEditBlock={(blockId) => setEditing({ dow: editingDay, blockId })}
         />
       )}
+      {editingProjected && (
+        <DayEditor
+          data={data}
+          actions={actions}
+          dow={editingProjected.dow}
+          lazyForkDate={editingProjected.dateIso}
+          onClose={() => setEditingProjected(null)}
+          // Once the lazy edit forks the day, `forkDate` comes back set so the
+          // block modal edits the fork copy, not the Template.
+          onEditBlock={(blockId, forkDate) => setEditing({ dow: editingProjected.dow, blockId, forkDate })}
+        />
+      )}
       {editingFork !== null && (
         <DayEditor
           data={data}
           actions={actions}
-          dow={dowMon(new Date(`${editingFork}T00:00:00`))}
+          dow={dowOfIso(editingFork)}
           forkDate={editingFork}
           onClose={() => setEditingFork(null)}
-          onEditBlock={(blockId) =>
-            setEditing({ dow: dowMon(new Date(`${editingFork}T00:00:00`)), blockId, forkDate: editingFork })
-          }
+          onEditBlock={(blockId) => setEditing({ dow: dowOfIso(editingFork), blockId, forkDate: editingFork })}
         />
       )}
       {editing && (
@@ -603,13 +646,12 @@ export function WeekView({ data, actions, today }: ViewProps) {
           onJustThis={async () => {
             const p = forkPrompt
             setForkPrompt(null)
-            const idMap = await actions.forkDay(dayPlans[p.di].dateIso)
-            await p.onFork(idMap)
+            await p.onJustThis()
           }}
           onEveryWeek={async () => {
             const p = forkPrompt
             setForkPrompt(null)
-            await p.onTemplate()
+            await p.onEveryWeek()
           }}
           onClose={() => setForkPrompt(null)}
         />

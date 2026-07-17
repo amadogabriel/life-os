@@ -6,13 +6,14 @@ import type { Block, Cat, LogEntry, LogState } from '../planner'
 import {
   blockLogRowsFromEntries,
   doneBlockMap,
-  dowMon,
+  dowOfIso,
+  forkCopies,
   isoDate,
   manilaDate,
   newLogEntry,
-  nextOneOffStart,
   reorderWithinSlots,
   resolve,
+  scheduleSlot,
 } from '../planner'
 import {
   DEFAULT_NOTES,
@@ -204,7 +205,7 @@ export function useDemoActions(): PlannerActions {
     async materializeDay(dateIso) {
       let count = 0
       await mutate((d) => {
-        const dow = dowMon(new Date(`${dateIso}T00:00:00`))
+        const dow = dowOfIso(dateIso)
         const frozen = new Set(d.logEntries.filter((e) => e.onDate === dateIso && e.blockId).map((e) => e.blockId))
         // Fork wins: a forked date freezes from its Day Plan (even when
         // intentionally emptied), an unforked date from the weekday Template.
@@ -286,16 +287,12 @@ export function useDemoActions(): PlannerActions {
       ),
 
     async forkDay(dateIso) {
-      const idMap: Record<string, string> = {}
+      let idMap: Record<string, string> = {}
       await mutate((d) => {
         if (d.dayForks[dateIso]) return d // already forked — edits go to the fork
-        const dow = dowMon(new Date(`${dateIso}T00:00:00`))
-        const copies = (d.blocksByDow[dow] ?? []).map((b) => {
-          const id = nid()
-          idMap[b.id] = id
-          return { ...b, id }
-        })
-        return { ...d, dayForks: { ...d.dayForks, [dateIso]: copies } }
+        const fork = forkCopies(d.blocksByDow[dowOfIso(dateIso)] ?? [], nid)
+        idMap = fork.idMap
+        return { ...d, dayForks: { ...d.dayForks, [dateIso]: fork.copies } }
       })
       return idMap
     },
@@ -310,7 +307,7 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) =>
         mapFork(d, dateIso, (blocks) => [
           ...blocks,
-          { id, dow: dowMon(new Date(`${dateIso}T00:00:00`)), position, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null },
+          { id, dow: dowOfIso(dateIso), position, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null },
         ]),
       )
       return id
@@ -481,14 +478,12 @@ export function useDemoActions(): PlannerActions {
     scheduleEntryToDate: (entryId, dateIso) =>
       mutate((d) => {
         const todayIso = isoDate(manilaDate(new Date()))
-        // Chain after the day's last planned item, ignoring the entry itself.
-        const others = d.logEntries.filter((e) => e.id !== entryId)
-        const startMin = nextOneOffStart(
-          { blocksByDow: d.blocksByDow, logEntries: others, dayForks: d.dayForks },
+        const { startMin, position } = scheduleSlot(
+          { blocksByDow: d.blocksByDow, logEntries: d.logEntries, dayForks: d.dayForks },
+          entryId,
           dateIso,
           todayIso,
         )
-        const position = others.filter((e) => e.onDate === dateIso).reduce((m, e) => Math.max(m, e.position + 1), 0)
         return {
           ...d,
           logEntries: d.logEntries.map((e) =>

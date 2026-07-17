@@ -3,8 +3,10 @@ import {
   blockLogRowsFromEntries,
   doneBlockMap,
   dowMon,
+  dowOfIso,
   fmt,
   fmtDur,
+  forkCopies,
   fortnightReport,
   isoDate,
   manilaDate,
@@ -15,6 +17,7 @@ import {
   planForDate,
   reorderWithinSlots,
   resolve,
+  scheduleSlot,
   streak,
   weekDates,
   weekRange,
@@ -63,6 +66,11 @@ describe('date helpers', () => {
   it('maps Sunday to 6, Monday to 0', () => {
     expect(dowMon(new Date('2026-07-12T12:00:00'))).toBe(6) // a Sunday
     expect(dowMon(new Date('2026-07-13T12:00:00'))).toBe(0) // a Monday
+  })
+  it('dowOfIso reads an ISO date string as a local weekday', () => {
+    expect(dowOfIso('2026-07-12')).toBe(6) // a Sunday
+    expect(dowOfIso('2026-07-13')).toBe(0) // a Monday
+    expect(dowOfIso('2026-07-17')).toBe(4) // a Friday
   })
   it('weekDates spans Mon–Sun around today', () => {
     const dates = weekDates(new Date('2026-07-15T12:00:00')) // a Wednesday
@@ -600,6 +608,56 @@ describe('nextOneOffStart', () => {
 
   it('falls back to 09:00 on an empty day', () => {
     expect(nextOneOffStart(input, '2026-07-17', todayIso)).toBe(540) // Friday — no Template blocks
+  })
+})
+
+describe('scheduleSlot', () => {
+  const todayIso = '2026-07-15'
+  const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
+  blocksByDow[3] = [
+    b({ id: 'anchor', dow: 3, position: 0, startMin: 540, durMin: 90, anchored: true }),
+    b({ id: 'chain', dow: 3, position: 1, startMin: 0, durMin: 30 }),
+  ]
+
+  it('chains the start after the day and positions after that date’s entries', () => {
+    const logEntries: LogEntry[] = [
+      entry({ id: 'x', onDate: '2026-07-16', startMin: 660, durMin: 45, state: 'open', position: 0 }),
+    ]
+    // Thursday projects anchor (540+90) then chain, plus the existing one-off at
+    // 660+45 → next slot 705; position lands after the one existing entry.
+    expect(scheduleSlot({ blocksByDow, logEntries }, 'new', '2026-07-16', todayIso)).toEqual({
+      startMin: 705,
+      position: 1,
+    })
+  })
+
+  it('excludes the entry being (re)scheduled from both start and position', () => {
+    // The entry moving to 07-16 must not chain after — or count its own — old slot.
+    const logEntries: LogEntry[] = [entry({ id: 'move', onDate: '2026-07-16', startMin: 900, durMin: 60, state: 'open', position: 0 })]
+    expect(scheduleSlot({ blocksByDow, logEntries }, 'move', '2026-07-16', todayIso)).toEqual({
+      startMin: 660, // just the Thursday projection; the moving entry is ignored
+      position: 0,
+    })
+  })
+})
+
+describe('forkCopies', () => {
+  it('mints a fresh id per Template block and returns the Template→fork id map', () => {
+    const template = [b({ id: 'a', position: 0, title: 'A' }), b({ id: 'z', position: 1, title: 'Z' })]
+    let n = 0
+    const { copies, idMap } = forkCopies(template, () => `fk${n++}`)
+    expect(copies.map((c) => c.id)).toEqual(['fk0', 'fk1'])
+    // Copies preserve everything but the id, in order.
+    expect(copies.map((c) => c.title)).toEqual(['A', 'Z'])
+    expect(idMap).toEqual({ a: 'fk0', z: 'fk1' })
+    // The originals are untouched (copy, not move).
+    expect(template.map((t) => t.id)).toEqual(['a', 'z'])
+  })
+
+  it('is a no-op mapping for an empty Template day', () => {
+    const { copies, idMap } = forkCopies([], () => 'x')
+    expect(copies).toEqual([])
+    expect(idMap).toEqual({})
   })
 })
 

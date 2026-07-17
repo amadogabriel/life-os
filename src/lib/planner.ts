@@ -295,6 +295,11 @@ export function dowMon(d: Date): number {
   return x === 0 ? 6 : x - 1
 }
 
+/** Weekday (Mon = 0) of an ISO date string, read in local time. */
+export function dowOfIso(dateIso: string): number {
+  return dowMon(new Date(`${dateIso}T00:00:00`))
+}
+
 export function addDays(d: Date, off: number): Date {
   const x = new Date(d)
   x.setDate(x.getDate() + off)
@@ -526,6 +531,45 @@ export function nextOneOffStart(input: PlanForDateInput, dateIso: string, todayI
 }
 
 /**
+ * Where a newly (re)scheduled dated one-off lands on `dateIso`: a `startMin`
+ * chained unanchored after the day's last planned item, and a `position` at the
+ * end of that date's entries. The entry being scheduled is excluded from both
+ * (re-scheduling must not chain after its own old slot). Pure; both backends
+ * persist the result.
+ */
+export function scheduleSlot(
+  input: PlanForDateInput,
+  entryId: string,
+  dateIso: string,
+  todayIso: string,
+): { startMin: number; position: number } {
+  const others = input.logEntries.filter((e) => e.id !== entryId)
+  const startMin = nextOneOffStart({ ...input, logEntries: others }, dateIso, todayIso)
+  const position = others.filter((e) => e.onDate === dateIso).reduce((m, e) => Math.max(m, e.position + 1), 0)
+  return { startMin, position }
+}
+
+/**
+ * Copy a weekday's Template Blocks into dated fork copies for a Day Plan,
+ * minting a fresh id for each via `mkId` (the caller supplies the id source —
+ * `crypto.randomUUID` in the cloud backend, the demo's counter otherwise).
+ * Returns the copies in order plus the Template→fork id map, so the edit that
+ * triggered the fork can retarget from the Template block to its fork copy.
+ */
+export function forkCopies(
+  templateBlocks: Block[],
+  mkId: () => string,
+): { copies: Block[]; idMap: Record<string, string> } {
+  const idMap: Record<string, string> = {}
+  const copies = templateBlocks.map((b) => {
+    const id = mkId()
+    idMap[b.id] = id
+    return { ...b, id }
+  })
+  return { copies, idMap }
+}
+
+/**
  * The single seam deciding what a Planner column shows for a calendar date.
  * Pure: planner data + ISO date (+ today's Manila-local ISO date) in,
  * laid-out day + source tag out.
@@ -556,7 +600,7 @@ export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: 
     return { dateIso, source: 'today', items: entryItems(onTimelineEntries(input.logEntries, dateIso)) }
   }
   const fork = input.dayForks?.[dateIso]
-  const blocks = fork ?? input.blocksByDow[dowMon(new Date(`${dateIso}T00:00:00`))] ?? []
+  const blocks = fork ?? input.blocksByDow[dowOfIso(dateIso)] ?? []
   const items = resolve(blocks).map(({ block: b, start, conflict }) => ({
     key: `block:${b.id}`,
     title: b.title,

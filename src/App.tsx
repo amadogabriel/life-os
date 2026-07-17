@@ -8,7 +8,7 @@ import { SignIn } from './features/auth/SignIn'
 import { TodayView } from './features/today/TodayView'
 import { LogView } from './features/log/LogView'
 import { ProjectsView } from './features/projects/ProjectsView'
-import { WeekView } from './features/week/WeekView'
+import { PlannerView } from './features/planner/PlannerView'
 import { HabitsView } from './features/habits/HabitsView'
 import { StatsView } from './features/stats/StatsView'
 import { ReportView } from './features/report/ReportView'
@@ -134,7 +134,7 @@ function PlannerShell({
         {tab === 'Today' && <TodayView {...viewProps} />}
         {tab === 'Log' && <LogView {...viewProps} />}
         {tab === 'Projects' && <ProjectsView {...viewProps} />}
-        {tab === 'Planner' && <WeekView {...viewProps} />}
+        {tab === 'Planner' && <PlannerView {...viewProps} />}
         {tab === 'Habits' && <HabitsView {...viewProps} />}
         {tab === 'Stats' && <StatsView {...viewProps} />}
         {tab === 'Report' && <ReportView {...viewProps} />}
