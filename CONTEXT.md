@@ -20,8 +20,8 @@ _Avoid_: schedule, routine
 
 **Block**:
 A single time-blocked item in a weekday Template (e.g. "Math — focused hour").
-Carries a category, a duration, and anchoring for re-flow. A Block is a plan, not
-a record.
+Belongs to a Bucket (or is Unassigned), and carries a duration and anchoring for
+re-flow. A Block is a plan, not a record.
 _Avoid_: event, task (those are Log Entry kinds)
 
 **Re-flow**:
@@ -46,6 +46,44 @@ A plan item for one specific date riding on top of the day's projection — a Lo
 Entry with a future `on_date` and a `start_min` (e.g. a sprint task scheduled
 onto next Wednesday). Does not fork the day. _Avoid_: block (it never enters the
 Template)
+
+### Taxonomy (what things belong to)
+
+**Bucket**:
+The user-defined lane that everything belongs to — Blocks, Habits, and Log
+Entries alike. A Bucket has a name, a color, and a **counted** flag. It is the
+unit the stats and weekly review group by, and the palette a day is designed
+from. _Avoid_: category (legacy — a retired hardcoded enum, now derived
+plumbing only)
+
+**Bucket Task**:
+A reusable palette item inside a Bucket ("Sentence mining"), placed onto a day
+to create a Block. May be vague (a mere name) or carry Traces. Vague and traced
+tasks coexist in the same Bucket.
+_Avoid_: chip (that's the widget, not the concept), todo
+
+**Trace**:
+A Bucket Task's link to a Habit and/or a Project (optionally a Sprint) — the two
+are independent and may coexist on one task. Placing a traced task pre-links the
+Block: checking it off logs the Habit, and its materialized Log Entry accrues to
+the Project. When a trace's target is deleted, the task **degrades to vague** —
+the chip survives, the link dies; a trace whose target is finished is stale and
+shows it.
+
+**Counted**:
+A Bucket's flag saying its hours belong on the scoreboard. Uncounted Buckets
+(e.g. Life: sleep, meals, commute) never materialize into the record and never
+accrue hours.
+
+**Unassigned**:
+A Block or Log Entry belonging to no Bucket — the "pick later" state, rendered
+gray. Replaces the old `open` category.
+
+**Deep**:
+Per Bucket Task / Block / Log Entry flag marking deep work (▲). Deep work is
+rendered visually boosted over shallow; the weekly scoreboard counts deep
+sessions.
+_Avoid_: focus, hard
 
 ### Record (the past)
 
