@@ -308,6 +308,39 @@ export function weekDates(today: Date): Date[] {
 }
 
 /**
+ * `now`'s calendar date in Asia/Manila, as a local-midnight Date. The user's
+ * sense of "today" — never trust the machine/UTC date for day boundaries
+ * (UTC runs a day behind PHT every evening). Pure: inject `now`.
+ */
+export function manilaDate(now: Date): Date {
+  const iso = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+  return new Date(`${iso}T00:00:00`)
+}
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+export interface WeekRange {
+  start: Date // Monday
+  end: Date // Sunday
+  label: string // e.g. "Week of Jul 20–26" / "Week of Jun 29 – Jul 5"
+}
+
+/**
+ * The calendar week (Mon–Sun) containing `today`, shifted by `weekOffset`
+ * whole weeks (0 = this week, 1 = next, -1 = last), with the Planner header's
+ * display label. Pure — the caller injects "today" (see `manilaDate`).
+ */
+export function weekRange(today: Date, weekOffset = 0): WeekRange {
+  const start = addDays(today, -dowMon(today) + weekOffset * 7)
+  const end = addDays(start, 6)
+  const label =
+    start.getMonth() === end.getMonth()
+      ? `Week of ${MONTH_SHORT[start.getMonth()]} ${start.getDate()}–${end.getDate()}`
+      : `Week of ${MONTH_SHORT[start.getMonth()]} ${start.getDate()} – ${MONTH_SHORT[end.getMonth()]} ${end.getDate()}`
+  return { start, end, label }
+}
+
+/**
  * Local dates (YYYY-MM-DD) still needing a Materialize freeze on app open:
  * every day after `lastSeen` through `today` inclusive. Empty when already
  * caught up (or the clock ran backwards); first run (no `lastSeen`) freezes

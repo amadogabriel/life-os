@@ -1,6 +1,6 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ViewProps } from '../../App'
-import { catStyles, depthClass, dowMon, fmt, fmtDur, resolve, stripeVar } from '../../lib/planner'
+import { catStyles, depthClass, dowMon, fmt, fmtDur, manilaDate, resolve, stripeVar, weekRange } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from './BlockModal'
 import { DayEditor } from './DayEditor'
 
@@ -216,11 +216,8 @@ export function WeekView({ data, actions, today }: ViewProps) {
   return (
     <div>
       <div className="view-head mb-[18px]">
-        <h2>The week</h2>
-        <p>
-          Your standing rhythm and this week's plan in one place. Click a day to design it; hold and drag a
-          block to move it — 📌 anchors hold their time, deep work is saturated.
-        </p>
+        <h2>Planner</h2>
+        <p>{weekRange(manilaDate(today)).label}</p>
       </div>
       <div className="mb-5 flex flex-wrap gap-x-[15px] gap-y-[7px]">
         {data.buckets.map((bk) => (

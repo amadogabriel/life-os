@@ -14,7 +14,7 @@ import { StatsView } from './features/stats/StatsView'
 import { ReportView } from './features/report/ReportView'
 import { AccountView } from './features/account/AccountView'
 
-const TABS = ['Today', 'Log', 'Projects', 'Week', 'Habits', 'Stats', 'Report', 'Account'] as const
+const TABS = ['Today', 'Log', 'Projects', 'Planner', 'Habits', 'Stats', 'Report', 'Account'] as const
 type Tab = (typeof TABS)[number]
 
 export interface ViewProps {
@@ -134,7 +134,7 @@ function PlannerShell({
         {tab === 'Today' && <TodayView {...viewProps} />}
         {tab === 'Log' && <LogView {...viewProps} />}
         {tab === 'Projects' && <ProjectsView {...viewProps} />}
-        {tab === 'Week' && <WeekView {...viewProps} />}
+        {tab === 'Planner' && <WeekView {...viewProps} />}
         {tab === 'Habits' && <HabitsView {...viewProps} />}
         {tab === 'Stats' && <StatsView {...viewProps} />}
         {tab === 'Report' && <ReportView {...viewProps} />}

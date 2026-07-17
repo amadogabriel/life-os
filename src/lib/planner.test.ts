@@ -7,6 +7,7 @@ import {
   fmtDur,
   fortnightReport,
   isoDate,
+  manilaDate,
   onTimelineEntries,
   parseTime,
   pendingMaterializationDates,
@@ -14,6 +15,7 @@ import {
   resolve,
   streak,
   weekDates,
+  weekRange,
   weekStats,
   windowAccomplishments,
   type Block,
@@ -65,6 +67,45 @@ describe('date helpers', () => {
     expect(dates).toHaveLength(7)
     expect(isoDate(dates[0])).toBe('2026-07-13')
     expect(isoDate(dates[6])).toBe('2026-07-19')
+  })
+})
+
+describe('manilaDate', () => {
+  it("returns the Asia/Manila calendar date, not the UTC one", () => {
+    // 17:30 UTC on Jul 16 is already 01:30 on Jul 17 in Manila (UTC+8)
+    expect(isoDate(manilaDate(new Date('2026-07-16T17:30:00Z')))).toBe('2026-07-17')
+  })
+  it('agrees with UTC while both are on the same calendar day', () => {
+    // 15:00 UTC on Jul 16 is 23:00 in Manila — still Jul 16
+    expect(isoDate(manilaDate(new Date('2026-07-16T15:00:00Z')))).toBe('2026-07-16')
+  })
+  it('lands at local midnight so dowMon/weekDates work on it', () => {
+    const d = manilaDate(new Date('2026-07-16T17:30:00Z')) // a Friday in Manila
+    expect(dowMon(d)).toBe(4)
+  })
+})
+
+describe('weekRange', () => {
+  it("names today's Mon–Sun week within one month", () => {
+    const r = weekRange(new Date('2026-07-15T12:00:00')) // a Wednesday
+    expect(isoDate(r.start)).toBe('2026-07-13')
+    expect(isoDate(r.end)).toBe('2026-07-19')
+    expect(r.label).toBe('Week of Jul 13–19')
+  })
+  it('pages by whole weeks with weekOffset', () => {
+    const next = weekRange(new Date('2026-07-15T12:00:00'), 1)
+    expect(isoDate(next.start)).toBe('2026-07-20')
+    expect(isoDate(next.end)).toBe('2026-07-26')
+    expect(next.label).toBe('Week of Jul 20–26')
+    const prev = weekRange(new Date('2026-07-15T12:00:00'), -1)
+    expect(isoDate(prev.start)).toBe('2026-07-06')
+    expect(prev.label).toBe('Week of Jul 6–12')
+  })
+  it('names both months when the week crosses one', () => {
+    const r = weekRange(new Date('2026-06-30T12:00:00')) // Tuesday, week is Jun 29 – Jul 5
+    expect(isoDate(r.start)).toBe('2026-06-29')
+    expect(isoDate(r.end)).toBe('2026-07-05')
+    expect(r.label).toBe('Week of Jun 29 – Jul 5')
   })
 })
 
