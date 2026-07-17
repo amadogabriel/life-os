@@ -721,6 +721,48 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
 }
 
 /**
+ * The frozen-past lens: a materialized day laid out at each entry's **stored**
+ * freeze-time `start_min` — the plan exactly as it was frozen — NOT re-flowed
+ * (ADR-0002 amendment). A past day's entries already carry their resolved start
+ * times and are not in position=time order, so running them back through
+ * `resolve()` (as the live-timeline lenses do) would discard those starts,
+ * re-chain everything, collapse the real gaps, and overflow past midnight.
+ *
+ * Placeholder rows — a blank title or an explicit zero duration (a half-built
+ * Template block that froze empty, filled in later) — are dropped; a titled
+ * null-duration entry renders at the 30-min default. Items are sorted by clock
+ * time; one overlapping the previous item in time is flagged `conflict`
+ * (rendered with a collision tint) but never repositioned.
+ */
+export function frozenPastItems(entries: LogEntry[]): PlanItem[] {
+  const items = entries
+    .filter((e) => e.startMin != null && e.text.trim() !== '' && e.durMin !== 0)
+    .map((e) => ({
+      key: `entry:${e.id}`,
+      title: e.text,
+      detail: '',
+      bucketId: e.bucketId, // Log Entries carry a Bucket reference (#18); color resolves live
+      cat: e.cat,
+      deep: e.deep,
+      durMin: e.durMin ?? DEFAULT_ENTRY_DUR,
+      start: e.startMin as number,
+      conflict: false,
+      anchored: e.anchored,
+      blockId: e.blockId,
+      entryId: e.id,
+    }))
+    // Stable sort by clock time; input pre-sorted by position, so equal starts
+    // keep their frozen record order.
+    .sort((a, b) => a.start - b.start)
+  let prevEnd = -Infinity
+  for (const it of items) {
+    if (it.start < prevEnd) it.conflict = true
+    prevEnd = Math.max(prevEnd, it.start + it.durMin)
+  }
+  return items
+}
+
+/**
  * Merge a future day's dated one-off entries (#13) into its already laid-out
  * plan (`base` — the Template projection today; a Day Plan fork's layout works
  * the same). One layout unit per item — base items pinned at their resolved
@@ -825,9 +867,10 @@ export function forkCopies(
  * laid-out day + source tag out.
  *
  * - Past date → 'frozen-past': that day's materialized Log Entries through the
- *   plan lens — every task entry with a start time, **regardless of record
- *   state** (done/migrated/dropped are facts about the record; the plan is the
- *   plan as frozen). Never-materialized days come back empty (blank column).
+ *   plan lens — every titled task entry with a start time, **regardless of
+ *   record state** (done/migrated/dropped are facts about the record; the plan
+ *   is the plan as frozen), rendered at its stored start with no re-flow (see
+ *   `frozenPastItems`). Never-materialized days come back empty (blank column).
  * - Today → 'today': the live plan, exactly `onTimelineEntries` (the Today tab's lens).
  * - Future date → 'fork' when the date has a Day Plan (whole-day fork): laid
  *   out from the fork's own dated Blocks, ignoring the Template entirely — a
@@ -842,9 +885,10 @@ export function forkCopies(
 export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: string): DayPlan {
   if (dateIso < todayIso) {
     const frozen = input.logEntries
-      .filter((e) => e.onDate === dateIso && e.kind === 'task' && e.startMin != null)
+      .filter((e) => e.onDate === dateIso && e.kind === 'task')
       .sort((a, b) => a.position - b.position)
-    return { dateIso, source: 'frozen-past', items: entryItems(frozen) }
+    // Rendered at stored freeze-time starts, NOT re-flowed — see frozenPastItems.
+    return { dateIso, source: 'frozen-past', items: frozenPastItems(frozen) }
   }
   if (dateIso === todayIso) {
     return { dateIso, source: 'today', items: entryItems(onTimelineEntries(input.logEntries, dateIso)) }

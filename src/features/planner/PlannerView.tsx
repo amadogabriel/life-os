@@ -7,6 +7,7 @@ import {
   dowOfIso,
   fmt,
   fmtDur,
+  isCounted,
   isoDate,
   manilaDate,
   planForDate,
@@ -49,6 +50,11 @@ interface ForkPrompt {
 
 export function PlannerView({ data, actions, today }: ViewProps) {
   const [weekOffset, setWeekOffset] = useState(0)
+  // "Focus: counted only" — hide uncounted (Life/Unassigned) items across every
+  // column so a week shows just the counted work (ADR-0002 amendment). Default
+  // off; while on, drag-edit is suspended (the visible set is a filtered subset,
+  // so drop-index math wouldn't line up with the full plan).
+  const [focusCounted, setFocusCounted] = useState(false)
   const [editing, setEditing] = useState<EditingBlock | null>(null)
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [editingFork, setEditingFork] = useState<string | null>(null) // ISO date of the fork being edited
@@ -74,6 +80,13 @@ export function PlannerView({ data, actions, today }: ViewProps) {
       todayIso,
     ),
   )
+  // What each column actually renders: the full plan, or (Focus on) only its
+  // counted items. Drives both the shared time axis and the columns, so the
+  // axis shrinks to the counted hours when focused. Edit/drag routing still
+  // reads `dayPlans` (the full plan) — safe because drag is off while focused.
+  const shownPlans: DayPlan[] = focusCounted
+    ? dayPlans.map((p) => ({ ...p, items: p.items.filter((it) => isCounted(it, data.buckets)) }))
+    : dayPlans
   // Column index === dow (Mon = 0): the visible week is always Mon–Sun.
   const editableCol = (di: number) => dayPlans[di].source === 'projection'
 
@@ -104,7 +117,7 @@ export function PlannerView({ data, actions, today }: ViewProps) {
 
   let axisStart: number | null = null
   let axisEnd: number | null = null
-  for (const plan of dayPlans) {
+  for (const plan of shownPlans) {
     if (!plan.items.length) continue
     const s = plan.items[0].start
     const e = plan.items[plan.items.length - 1].start + plan.items[plan.items.length - 1].durMin
@@ -371,6 +384,15 @@ export function PlannerView({ data, actions, today }: ViewProps) {
         </div>
         <div className="flex items-center gap-1.5">
           <button
+            className="btn ghost min-h-[42px]"
+            aria-pressed={focusCounted}
+            title="Focus: show only counted work — hide Life (sleep, commute, meals) and Unassigned"
+            onClick={() => setFocusCounted((v) => !v)}
+            style={focusCounted ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+          >
+            {focusCounted ? '◆ Counted only' : '◇ Focus'}
+          </button>
+          <button
             className="btn ghost min-h-[42px] min-w-[46px] text-[17px]"
             aria-label="Previous week"
             title="Previous week"
@@ -414,7 +436,7 @@ export function PlannerView({ data, actions, today }: ViewProps) {
             ))}
           </div>
         </div>
-        {dayPlans.map((plan, di) => {
+        {shownPlans.map((plan, di) => {
           const day = data.days[di]
           const isToday = plan.source === 'today'
           const isPast = plan.source === 'frozen-past'
@@ -483,7 +505,9 @@ export function PlannerView({ data, actions, today }: ViewProps) {
                   // fork's own blocks and one-offs drag on fork columns (edits
                   // route silently to the fork). A plain tap still opens the
                   // relevant editor. Past/today items don't drag.
-                  const draggable = editable || isFork || isOneOff
+                  // Suspended while Focus is on — the visible items are a
+                  // filtered subset, so drag drop-index math wouldn't align.
+                  const draggable = !focusCounted && (editable || isFork || isOneOff)
                   const isDragging = draggable && dragVis?.id === (it.entryId ?? it.blockId)
                   // Past columns render the frozen plan: times/titles only — no
                   // done/undone styling, no drag or edit affordances. Fork

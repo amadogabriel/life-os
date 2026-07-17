@@ -31,8 +31,11 @@ previous Block's end.
 
 **Planner**:
 The dated-weeks view (formerly "Week"). Plan-side in both directions: past days
-show the plan as it was frozen, future days show the Template **projected** onto
-real dates plus any Day Plan forks and dated one-offs. Paging it writes nothing.
+show the plan as it was frozen — rendered at each entry's stored freeze-time
+start, **not** re-flowed (ADR-0002 amendment) — future days show the Template
+**projected** onto real dates plus any Day Plan forks and dated one-offs. A
+Planner-wide **Focus** toggle can hide uncounted (Life) items. Paging it writes
+nothing.
 _Avoid_: week view, calendar
 
 **Day Plan (fork)**:

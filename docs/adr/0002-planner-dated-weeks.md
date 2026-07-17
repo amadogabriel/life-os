@@ -65,3 +65,38 @@ per-date plan the Template no longer speaks for.
 - "▸ block" (Template insert from a sprint task) is retired.
 - The Planner header names the visible week (e.g. "Week of Jul 20–26") and
   the explainer caption goes away; the view is renamed Planner everywhere.
+
+## Amendment (2026-07-18): the frozen-past lens renders at stored times, no re-flow
+
+Shipping revealed a rendering bug. The Planner's past columns ran each frozen
+day's Log Entries back through `resolve()` — the live-timeline re-flow — which
+discards every entry's stored `start_min` and re-chains them in `position`
+order. A materialized day's entries are **not** in position=time order and most
+are unanchored, so this collapsed the real clock layout into one contiguous
+stack that overflowed past midnight: past days looked nothing like what was
+planned.
+
+Decision: the **frozen-past lens renders each entry at its stored `start_min`**,
+sorted by clock time, with **no `resolve()` re-flow**. This matches migration
+`0013`'s stated intent ("past days: position-ordered, no re-flow") — the frozen
+rows already hold the freeze-time resolved start; the column simply honors it.
+Today / projection / fork keep `resolve()`; they are live, editable chains.
+
+- **Placeholders are dropped.** A frozen entry with a blank title or an explicit
+  zero duration is a half-built Template block that froze empty (filled in
+  later) — noise, not a plan item. A titled null-duration entry renders at the
+  30-min default.
+- **Collisions are flagged, not reflowed.** Two frozen items overlapping in time
+  (an anchored block pinned inside another's span; a dated one-off dropped over a
+  block) render at their true times; the later one gets the `conflict` tint. No
+  side-by-side splitting.
+- **Focus (counted-only)** — a Planner-wide toggle, default off, hides uncounted
+  items (Life: sleep/commute/meals, and Unassigned) across all columns via
+  `isCounted`, so a week can show just the counted work and the time axis shrinks
+  to those hours.
+
+A one-off operator re-sync repaired the project's two founding days
+(`2026-07-15`, `2026-07-16`), whose frozen rows predated a complete Template (Thu
+had 5 blank placeholders). Matched block-rows were updated **in place** to the
+current Wed/Thu Template's title/cat/dur/deep/anchored + recomputed `start_min`,
+preserving `state` and hand-added entries — no deletes, no re-materialize.

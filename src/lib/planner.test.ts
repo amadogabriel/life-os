@@ -16,6 +16,7 @@ import {
   forkCopies,
   fortnightReport,
   freezeBlockEntry,
+  frozenPastItems,
   isCounted,
   isoDate,
   isTraceStale,
@@ -581,6 +582,46 @@ describe('onTimelineEntries', () => {
   })
 })
 
+describe('frozenPastItems — the frozen-past lens (ADR-0002 amendment)', () => {
+  it('renders at stored start_min, sorted by clock — no re-flow of position order', () => {
+    const items = frozenPastItems([
+      entry({ id: 'late', text: 'Afternoon', startMin: 780, durMin: 60, position: 0 }),
+      entry({ id: 'early', text: 'Dawn', startMin: 360, durMin: 60, position: 1 }),
+    ])
+    // clock order, not position order; each holds its OWN stored start (not chained)
+    expect(items.map((i) => i.entryId)).toEqual(['early', 'late'])
+    expect(items.map((i) => i.start)).toEqual([360, 780])
+  })
+
+  it('drops placeholder rows (blank title or zero duration); keeps titled null-dur at the default', () => {
+    const items = frozenPastItems([
+      entry({ id: 'blank', text: '', startMin: 400, durMin: 0 }),
+      entry({ id: 'ghost', text: 'Emptied block', startMin: 500, durMin: 0 }),
+      entry({ id: 'idea', text: 'Titled, no dur', startMin: 600, durMin: null }),
+      entry({ id: 'real', text: 'Work', startMin: 700, durMin: 60 }),
+    ])
+    expect(items.map((i) => i.entryId)).toEqual(['idea', 'real'])
+    expect(items.find((i) => i.entryId === 'idea')!.durMin).toBe(30)
+  })
+
+  it('flags — but does not reflow — a block overlapping the previous one', () => {
+    const items = frozenPastItems([
+      entry({ id: 'span', text: 'Long block', startMin: 480, durMin: 180 }), // 08:00–11:00
+      entry({ id: 'inside', text: 'Pinned inside', startMin: 600, durMin: 30 }), // 10:00–10:30
+      entry({ id: 'after', text: 'Clear', startMin: 720, durMin: 60 }), // 12:00–13:00
+    ])
+    const by = Object.fromEntries(items.map((i) => [i.entryId, i]))
+    expect(by.span.conflict).toBe(false)
+    expect(by.inside.conflict).toBe(true) // overlaps the still-running span
+    expect(by.inside.start).toBe(600) // true time, not pushed down
+    expect(by.after.conflict).toBe(false)
+  })
+
+  it('excludes entries with no start time (rapid-log todos are not on the timeline)', () => {
+    expect(frozenPastItems([entry({ id: 't', text: 'todo', startMin: null })])).toEqual([])
+  })
+})
+
 describe('planForDate', () => {
   const todayIso = '2026-07-15' // a Wednesday
   const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
@@ -617,18 +658,21 @@ describe('planForDate', () => {
     expect(item?.bucketId).toBe('bk-math')
   })
 
-  it('past day with entries → the frozen plan, laid out by re-flow, entry-backed', () => {
+  it('past day with entries → the frozen plan at stored starts, sorted by clock, no re-flow', () => {
     const day = planForDate(input, '2026-07-13', todayIso)
     expect(day.source).toBe('frozen-past')
     expect(day.dateIso).toBe('2026-07-13')
-    // rapid-log todos (no startMin) are not part of the frozen timeline
-    expect(day.items.map((i) => i.entryId)).toEqual(['p1', 'p2'])
-    // anchored entry holds its pin; the next chains off its end (default 30m dur)
-    expect(day.items.map((i) => i.start)).toEqual([540, 630])
-    expect(day.items[0].title).toBe('Frozen deep block')
-    expect(day.items[0].durMin).toBe(90)
-    expect(day.items[0].blockId).toBe('blk1')
-    expect(day.items[1].durMin).toBe(30) // hand-typed, no frozen duration
+    // rapid-log todos (no startMin) are not part of the frozen timeline; the
+    // remaining two render at their STORED starts (0, 540) — not re-chained — so
+    // clock order (p2 then p1) wins over position order (p1 then p2).
+    expect(day.items.map((i) => i.entryId)).toEqual(['p2', 'p1'])
+    expect(day.items.map((i) => i.start)).toEqual([0, 540])
+    expect(day.items[0].title).toBe('Hand-added timeline item')
+    expect(day.items[0].durMin).toBe(30) // hand-typed, no frozen duration → default
+    const deep = day.items.find((i) => i.entryId === 'p1')!
+    expect(deep.start).toBe(540) // held its own frozen start, not chained after p2
+    expect(deep.durMin).toBe(90)
+    expect(deep.blockId).toBe('blk1')
     expect(day.items.every((i) => i.entryId !== null)).toBe(true)
   })
 
@@ -717,7 +761,8 @@ describe('planForDate', () => {
     expect(today.items.map((i) => i.entryId)).toEqual(['t1', 't3'])
     const past = planForDate({ ...input, dayForks }, '2026-07-13', todayIso)
     expect(past.source).toBe('frozen-past')
-    expect(past.items.map((i) => i.entryId)).toEqual(['p1', 'p2'])
+    // frozen-past renders at stored starts, clock-sorted (p2@0 before p1@540)
+    expect(past.items.map((i) => i.entryId)).toEqual(['p2', 'p1'])
   })
 
   it('a fork on one date leaves other dates of the same weekday projecting the Template', () => {
