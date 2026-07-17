@@ -44,7 +44,10 @@ export interface Block {
   durMin: number
   anchored: boolean
   deep: boolean
+  // Traces carried from the placed Bucket Task (#20/#21), independent & coexisting:
   habitId: string | null // when set, checking this block off logs the habit
+  projectId: string | null // when set, materialize stamps it on the entry -> accrues to the project
+  sprintId: string | null // optional sprint container within the project
 }
 
 export interface Day {
@@ -146,6 +149,143 @@ export interface Sprint {
 
 export const PROJECT_STATUSES: ProjectStatus[] = ['planning', 'active', 'done', 'archived']
 export const SPRINT_STATUSES: SprintStatus[] = ['planning', 'active', 'done']
+
+// ---------- traces (#20 habit, #21 project/sprint) ----------
+
+/** A Trace: a Bucket Task's (and, once placed, a Block's) optional links to a
+ *  Habit and/or a Project — optionally narrowed to a Sprint *container* within
+ *  it. The two are independent and may coexist on one task. Every ref is
+ *  nullable; a null everywhere is a vague task. */
+export interface Trace {
+  habitId: string | null
+  projectId: string | null
+  sprintId: string | null
+}
+
+/** The trace a Bucket Task carries (name + deep + Trace) — the shape the bucket
+ *  editor and the placement path read. `Bucket`/`BucketTask` proper live in the
+ *  queries layer; this is the pure slice the domain logic needs. */
+export interface TracedTask extends Trace {
+  name: string
+  deep: boolean
+}
+
+/** Duration a placed chip gets by default (1h), matching the design palette. */
+const PLACED_BLOCK_DUR = 60
+
+/**
+ * The fields to stamp on a Block when a Bucket Task chip is placed onto a day.
+ * The placed Block records which Bucket it came from (`bucketId`; `cat` is the
+ * stamped derived plumbing, ADR-0003) AND carries the task's Traces, so the
+ * Block is pre-linked: checking it off logs the habit, and its materialized Log
+ * Entry accrues to the project (and sprint). A vague task places a vague block
+ * (all traces null). Pure: bucket + task in, block fields out.
+ */
+export function placedBlockFields(
+  bucket: { id: string; cat: Cat },
+  task: Partial<Trace> & { name: string; deep: boolean },
+): Pick<
+  Block,
+  'bucketId' | 'cat' | 'title' | 'durMin' | 'anchored' | 'deep' | 'habitId' | 'projectId' | 'sprintId'
+> {
+  return {
+    bucketId: bucket.id,
+    cat: bucket.cat,
+    title: task.name,
+    durMin: PLACED_BLOCK_DUR,
+    anchored: false,
+    deep: task.deep,
+    habitId: task.habitId ?? null,
+    projectId: task.projectId ?? null,
+    sprintId: task.sprintId ?? null,
+  }
+}
+
+/**
+ * Freeze a resolved plan Block into an OPEN task Log Entry — the shared shape
+ * `materialize` produces (both backends). Stamps the Block's project/sprint
+ * Trace onto the entry so a later check-off accrues the accomplishment to the
+ * project (and sprint) — the log-primary mirror of the SQL `materialize_day`.
+ * The habit link is NOT copied onto the entry: it rides on the Block
+ * (`habitId`), and the client mirrors the habit log from there when the Block's
+ * entry is checked off.
+ */
+export function freezeBlockEntry(
+  block: Pick<Block, 'id' | 'title' | 'cat' | 'durMin' | 'deep' | 'anchored' | 'projectId' | 'sprintId'>,
+  dateIso: string,
+  start: number,
+  position: number,
+  id: string,
+): LogEntry {
+  return newLogEntry({
+    id,
+    onDate: dateIso,
+    state: 'open',
+    text: block.title,
+    cat: block.cat,
+    blockId: block.id,
+    position,
+    durMin: block.durMin,
+    deep: block.deep,
+    startMin: start,
+    anchored: block.anchored,
+    projectId: block.projectId,
+    sprintId: block.sprintId,
+  })
+}
+
+/**
+ * ON DELETE SET NULL mirror for a deleted Habit: null the habit trace on any
+ * holder (Bucket Task or Block) that pointed at it — the chip survives, degraded
+ * to vague. Returns the holder unchanged when it didn't reference this habit.
+ */
+export function detachHabit<T extends { habitId: string | null }>(holder: T, habitId: string): T {
+  return holder.habitId === habitId ? { ...holder, habitId: null } : holder
+}
+
+/**
+ * ON DELETE SET NULL mirror for a deleted Project: null BOTH the project and the
+ * sprint trace (a sprint can't outlive its project — sprints cascade from
+ * projects). Degrades the holder to vague.
+ */
+export function detachProject<T extends { projectId: string | null; sprintId: string | null }>(
+  holder: T,
+  projectId: string,
+): T {
+  return holder.projectId === projectId ? { ...holder, projectId: null, sprintId: null } : holder
+}
+
+/**
+ * ON DELETE SET NULL mirror for a deleted Sprint: null ONLY the sprint trace,
+ * keeping the project trace — the task stays project-traced, just no longer
+ * narrowed to that sprint.
+ */
+export function detachSprint<T extends { sprintId: string | null }>(holder: T, sprintId: string): T {
+  return holder.sprintId === sprintId ? { ...holder, sprintId: null } : holder
+}
+
+/**
+ * A project/sprint Trace is STALE when its target is finished — the sprint is
+ * done or the project archived (#21). A stale chip stays placeable but is
+ * flagged for re-pointing. A vague (untraced) or habit-only task is never
+ * stale, and a trace whose target no longer exists (already degraded to null)
+ * isn't stale either. Pure: trace + the live project/sprint lists in.
+ */
+export function isTraceStale(
+  trace: { projectId: string | null; sprintId: string | null },
+  projects: { id: string; status: ProjectStatus }[],
+  sprints: { id: string; status: SprintStatus }[],
+): boolean {
+  if (trace.projectId) {
+    const p = projects.find((x) => x.id === trace.projectId)
+    if (p && p.status === 'archived') return true
+  }
+  if (trace.sprintId) {
+    const s = sprints.find((x) => x.id === trace.sprintId)
+    if (s && s.status === 'done') return true
+  }
+  return false
+}
 
 /** A completed block, frozen as it stood the day it was planned. Now derived
  *  from the log-primary record (a done, block-sourced Log Entry) rather than

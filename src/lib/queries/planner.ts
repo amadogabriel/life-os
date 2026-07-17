@@ -42,6 +42,11 @@ export interface BucketTask {
   name: string
   position: number
   deep: boolean
+  // Traces (#20/#21) — independent, coexisting links to a Habit and/or a
+  // Project (optionally narrowed to a Sprint). Null everywhere = a vague task.
+  habitId: string | null
+  projectId: string | null
+  sprintId: string | null
 }
 
 export interface Bucket {
@@ -220,6 +225,8 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       anchored: b.anchored,
       deep: b.deep ?? false,
       habitId: b.habit_id ?? null,
+      projectId: b.project_id ?? null,
+      sprintId: b.sprint_id ?? null,
     }
     if (b.on_date) (dayForks[b.on_date] ??= []).push(block)
     else blocksByDow[b.dow].push(block)
@@ -229,7 +236,15 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
   const taskByBucket = new Map<string, BucketTask[]>()
   for (const t of bucketTasks.data!) {
     const list = taskByBucket.get(t.bucket_id) ?? []
-    list.push({ id: t.id, name: t.name, position: t.position, deep: t.deep ?? false })
+    list.push({
+      id: t.id,
+      name: t.name,
+      position: t.position,
+      deep: t.deep ?? false,
+      habitId: t.habit_id ?? null,
+      projectId: t.project_id ?? null,
+      sprintId: t.sprint_id ?? null,
+    })
     taskByBucket.set(t.bucket_id, list)
   }
 
@@ -333,7 +348,10 @@ export interface PlannerActions {
   updateBlock(
     id: string,
     fields: Partial<
-      Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>
+      Pick<
+        Block,
+        'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId' | 'projectId' | 'sprintId'
+      >
     >,
   ): Promise<void>
   /** Works on Template AND Day Plan (fork) Blocks. */
@@ -360,7 +378,13 @@ export interface PlannerActions {
   saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
   deleteHabit(id: string): Promise<void>
   saveBucket(
-    bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
+    bucket: {
+      id?: string
+      name: string
+      cat: Cat
+      tasks: { name: string; deep: boolean; habitId?: string | null; projectId?: string | null; sprintId?: string | null }[]
+      color: string
+    },
     position: number,
   ): Promise<void>
   deleteBucket(id: string): Promise<void>
@@ -591,7 +615,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       return data.id
     },
 
-    async updateBlock(id: string, fields: Partial<Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>) {
+    async updateBlock(id: string, fields: Partial<Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId' | 'projectId' | 'sprintId'>>) {
       // Optimistic: rapid ± duration taps must see each other's result. The id
       // may name a Template block or a Day Plan (fork) block — same table.
       patch((data) => ({
@@ -613,6 +637,8 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.anchored !== undefined && { anchored: fields.anchored }),
           ...(fields.deep !== undefined && { deep: fields.deep }),
           ...(fields.habitId !== undefined && { habit_id: fields.habitId }),
+          ...(fields.projectId !== undefined && { project_id: fields.projectId }),
+          ...(fields.sprintId !== undefined && { sprint_id: fields.sprintId }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -717,6 +743,8 @@ export function usePlannerActions(userId: string): PlannerActions {
             anchored: b.anchored,
             deep: b.deep,
             habit_id: b.habitId,
+            project_id: b.projectId,
+            sprint_id: b.sprintId,
           })),
         )
         if (r.error) {
@@ -800,7 +828,13 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async saveBucket(
-      bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
+      bucket: {
+        id?: string
+        name: string
+        cat: Cat
+        tasks: { name: string; deep: boolean; habitId?: string | null; projectId?: string | null; sprintId?: string | null }[]
+        color: string
+      },
       position: number,
     ) {
       let bucketId = bucket.id
@@ -837,6 +871,9 @@ export function usePlannerActions(userId: string): PlannerActions {
               name: t.name,
               deep: t.deep,
               position: i,
+              habit_id: t.habitId ?? null,
+              project_id: t.projectId ?? null,
+              sprint_id: t.sprintId ?? null,
             })),
           )
         if (error) throw error

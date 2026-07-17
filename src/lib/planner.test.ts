@@ -3,6 +3,9 @@ import {
   blockLogRowsFromEntries,
   blockStyle,
   depthClass,
+  detachHabit,
+  detachProject,
+  detachSprint,
   doneBlockMap,
   dowMon,
   dowOfIso,
@@ -10,12 +13,15 @@ import {
   fmtDur,
   forkCopies,
   fortnightReport,
+  freezeBlockEntry,
   isoDate,
+  isTraceStale,
   manilaDate,
   nextOneOffStart,
   onTimelineEntries,
   parseTime,
   pendingMaterializationDates,
+  placedBlockFields,
   planForDate,
   reorderWithinSlots,
   resolve,
@@ -30,6 +36,8 @@ import {
   type Habit,
   type LogEntry,
   type LogMap,
+  type Project,
+  type Sprint,
 } from './planner'
 
 const b = (over: Partial<Block>): Block => ({
@@ -45,6 +53,8 @@ const b = (over: Partial<Block>): Block => ({
   durMin: 60,
   anchored: false,
   habitId: null,
+  projectId: null,
+  sprintId: null,
   ...over,
 })
 
@@ -727,5 +737,164 @@ describe('reorderWithinSlots', () => {
   it('is a no-op when the order is unchanged', () => {
     const items = ['a', 'b', 'c'].map((id) => ({ id }))
     expect(reorderWithinSlots(items, ['a', 'b', 'c']).map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+// ---------- traces (#20 habit, #21 project/sprint) ----------
+
+describe('placedBlockFields (chip placement carries the trace)', () => {
+  const bucket = { id: 'bk1', cat: 'work' as const }
+
+  it('a vague task places a vague block (all traces null)', () => {
+    const f = placedBlockFields(bucket, { name: 'Emails', deep: false })
+    expect(f).toMatchObject({
+      bucketId: 'bk1',
+      cat: 'work',
+      title: 'Emails',
+      durMin: 60,
+      anchored: false,
+      deep: false,
+      habitId: null,
+      projectId: null,
+      sprintId: null,
+    })
+  })
+
+  it('a habit-traced task pre-links the habit on the block (#20)', () => {
+    const f = placedBlockFields(bucket, { name: 'Sentence mining', deep: true, habitId: 'h1' })
+    expect(f.habitId).toBe('h1')
+    expect(f.deep).toBe(true)
+    expect(f.projectId).toBeNull()
+    expect(f.sprintId).toBeNull()
+  })
+
+  it('a project-traced task carries the project (and sprint) onto the block (#21)', () => {
+    const f = placedBlockFields(bucket, { name: 'Write chapter', deep: false, projectId: 'p1', sprintId: 's1' })
+    expect(f.projectId).toBe('p1')
+    expect(f.sprintId).toBe('s1')
+    expect(f.habitId).toBeNull()
+  })
+
+  it('a double-traced task carries BOTH links (#21)', () => {
+    const f = placedBlockFields(bucket, { name: 'Deep study', deep: true, habitId: 'h1', projectId: 'p1', sprintId: 's1' })
+    expect(f.habitId).toBe('h1')
+    expect(f.projectId).toBe('p1')
+    expect(f.sprintId).toBe('s1')
+  })
+})
+
+describe('freezeBlockEntry (materialize stamps the trace onto the record)', () => {
+  const traced = b({ id: 'blk', title: 'Write chapter', cat: 'thesis', durMin: 90, deep: true, projectId: 'p1', sprintId: 's1' })
+
+  it('freezes an open task entry pointing back at the block', () => {
+    const e = freezeBlockEntry(traced, '2026-07-17', 540, 3, 'e1')
+    expect(e).toMatchObject({
+      id: 'e1',
+      onDate: '2026-07-17',
+      kind: 'task',
+      state: 'open',
+      text: 'Write chapter',
+      cat: 'thesis',
+      blockId: 'blk',
+      durMin: 90,
+      deep: true,
+      startMin: 540,
+      position: 3,
+    })
+  })
+
+  it('stamps the project/sprint trace so a check-off accrues to the project (#21)', () => {
+    const e = freezeBlockEntry(traced, '2026-07-17', 540, 0, 'e1')
+    expect(e.projectId).toBe('p1')
+    expect(e.sprintId).toBe('s1')
+  })
+
+  it('a vague block freezes a vague entry (no accrual)', () => {
+    const e = freezeBlockEntry(b({ id: 'v', projectId: null, sprintId: null }), '2026-07-17', 540, 0, 'e2')
+    expect(e.projectId).toBeNull()
+    expect(e.sprintId).toBeNull()
+  })
+
+  it('a double-traced block freezes an entry that accrues to the project (habit rides on the block)', () => {
+    // The habit is NOT stamped on the entry — it stays on the block and is
+    // mirrored on check-off. The entry carries only the project accrual.
+    const dbl = b({ id: 'd', habitId: 'h1', projectId: 'p1', sprintId: 's1' })
+    const e = freezeBlockEntry(dbl, '2026-07-17', 540, 0, 'e3')
+    expect(e.projectId).toBe('p1')
+    expect(dbl.habitId).toBe('h1') // habit pre-link survives on the block for the checkoff mirror
+  })
+})
+
+describe('trace degrade rules (ON DELETE SET NULL mirror)', () => {
+  it('deleting a habit degrades the task to vague — chip name survives, link nulled (#20)', () => {
+    const task = { name: 'Mining', deep: true, habitId: 'h1', projectId: null, sprintId: null }
+    const d = detachHabit(task, 'h1')
+    expect(d.habitId).toBeNull()
+    expect(d.name).toBe('Mining') // chip survives
+  })
+
+  it('detachHabit leaves an unrelated habit trace untouched', () => {
+    const task = { name: 'x', deep: false, habitId: 'h2', projectId: null, sprintId: null }
+    expect(detachHabit(task, 'h1')).toBe(task) // same reference — no change
+  })
+
+  it('deleting a project degrades to vague — BOTH project and sprint nulled (#21)', () => {
+    const task = { name: 'Chapter', deep: false, habitId: null, projectId: 'p1', sprintId: 's1' }
+    const d = detachProject(task, 'p1')
+    expect(d.projectId).toBeNull()
+    expect(d.sprintId).toBeNull()
+    expect(d.name).toBe('Chapter')
+  })
+
+  it('deleting just the sprint keeps the project trace (#21)', () => {
+    const task = { name: 'Chapter', deep: false, habitId: null, projectId: 'p1', sprintId: 's1' }
+    const d = detachSprint(task, 's1')
+    expect(d.projectId).toBe('p1') // project trace stays
+    expect(d.sprintId).toBeNull()
+  })
+
+  it('a habit trace is independent of a project trace under deletes', () => {
+    const task = { name: 'Deep', deep: true, habitId: 'h1', projectId: 'p1', sprintId: 's1' }
+    const afterHabit = detachHabit(task, 'h1')
+    expect(afterHabit.habitId).toBeNull()
+    expect(afterHabit.projectId).toBe('p1') // project survives a habit delete
+    const afterProject = detachProject(task, 'p1')
+    expect(afterProject.habitId).toBe('h1') // habit survives a project delete
+  })
+})
+
+describe('isTraceStale (finished target flags the chip)', () => {
+  const projects: Pick<Project, 'id' | 'status'>[] = [
+    { id: 'p1', status: 'active' },
+    { id: 'p2', status: 'archived' },
+    { id: 'p3', status: 'done' },
+  ]
+  const sprints: Pick<Sprint, 'id' | 'status'>[] = [
+    { id: 's1', status: 'active' },
+    { id: 's2', status: 'done' },
+  ]
+
+  it('a done sprint is stale (#21)', () => {
+    expect(isTraceStale({ projectId: 'p1', sprintId: 's2' }, projects, sprints)).toBe(true)
+  })
+
+  it('an archived project is stale (#21)', () => {
+    expect(isTraceStale({ projectId: 'p2', sprintId: null }, projects, sprints)).toBe(true)
+  })
+
+  it('an active project + active sprint is not stale', () => {
+    expect(isTraceStale({ projectId: 'p1', sprintId: 's1' }, projects, sprints)).toBe(false)
+  })
+
+  it('a vague or habit-only task is never stale', () => {
+    expect(isTraceStale({ projectId: null, sprintId: null }, projects, sprints)).toBe(false)
+  })
+
+  it('a trace whose target no longer exists (already degraded) is not stale', () => {
+    expect(isTraceStale({ projectId: 'gone', sprintId: 'gone' }, projects, sprints)).toBe(false)
+  })
+
+  it('a done (not archived) project alone is not stale — only archived flags it', () => {
+    expect(isTraceStale({ projectId: 'p3', sprintId: null }, projects, sprints)).toBe(false)
   })
 })

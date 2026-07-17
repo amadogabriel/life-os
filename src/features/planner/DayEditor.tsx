@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { Bucket, PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { blockStyle, depthClass, stripeVar } from '../../lib/planner'
+import { blockStyle, depthClass, isTraceStale, placedBlockFields, stripeVar } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
 import { BucketModal } from '../design/BucketModal'
@@ -84,15 +84,11 @@ export function DayEditor({
     if (!bucket || !task) return null
     // addBlock forks first if lazy and returns the new block's real id.
     const id = await addBlock(blocks.length)
-    await actions.updateBlock(id, {
-      // Record which Bucket this block came from; `cat` is stamped derived data.
-      bucketId: bucket.id,
-      cat: bucket.cat,
-      title: task.name,
-      durMin: 60,
-      anchored: false,
-      deep: task.deep,
-    })
+    // placedBlockFields records the source Bucket (`cat` is stamped derived
+    // data) AND carries the task's Traces (#20/#21) onto the block, so the chip
+    // is pre-linked: checking it off logs the habit, its entry accrues to the
+    // project.
+    await actions.updateBlock(id, placedBlockFields(bucket, task))
     return id
   }
 
@@ -132,23 +128,52 @@ export function DayEditor({
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5 p-[11px_13px]">
-                {bk.tasks.map((tk) => (
-                  <button
-                    key={tk.id}
-                    className={`chip s-${bk.cat}${depthClass(tk.deep)}`}
-                    style={stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets))}
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData('text/plain', bk.id + '|' + tk.id)
-                      e.dataTransfer.effectAllowed = 'copy'
-                    }}
-                    onClick={() => addFromChip(bk.id, tk.id)}
-                  >
-                    {tk.deep ? '▲ ' : ''}
-                    {tk.name}
-                    <span className="add">＋</span>
-                  </button>
-                ))}
+                {bk.tasks.map((tk) => {
+                  const stale = isTraceStale(tk, data.projects, data.sprints)
+                  return (
+                    <button
+                      key={tk.id}
+                      className={`chip s-${bk.cat}${depthClass(tk.deep)}`}
+                      style={{
+                        ...stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets)),
+                        ...(stale ? { opacity: 0.55, borderStyle: 'dashed' } : undefined),
+                      }}
+                      title={
+                        stale
+                          ? 'Trace stale — its sprint is done or project archived; re-point it'
+                          : tk.habitId || tk.projectId
+                            ? 'Traced task'
+                            : undefined
+                      }
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', bk.id + '|' + tk.id)
+                        e.dataTransfer.effectAllowed = 'copy'
+                      }}
+                      onClick={() => addFromChip(bk.id, tk.id)}
+                    >
+                      {tk.deep ? '▲ ' : ''}
+                      {tk.name}
+                      {/* Subtle trace markers: ↻ habit-traced, ◇ project-traced, ⚠ stale. */}
+                      {tk.habitId && (
+                        <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.75 }} title="Habit-traced">
+                          ↻
+                        </span>
+                      )}
+                      {tk.projectId && (
+                        <span style={{ marginLeft: 3, fontSize: 10, opacity: 0.75 }} title="Project-traced">
+                          ◇
+                        </span>
+                      )}
+                      {stale && (
+                        <span style={{ marginLeft: 3, fontSize: 10 }} title="Trace stale — re-point">
+                          ⚠
+                        </span>
+                      )}
+                      <span className="add">＋</span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           ))}
@@ -170,6 +195,9 @@ export function DayEditor({
       {editingBucket && (
         <BucketModal
           bucket={editingBucket === 'new' ? null : editingBucket}
+          habits={data.habits}
+          projects={data.projects}
+          sprints={data.sprints}
           onSave={async (b) => {
             await actions.saveBucket(b, data.buckets.length)
             setEditingBucket(null)

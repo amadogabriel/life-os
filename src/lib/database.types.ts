@@ -65,6 +65,8 @@ export type Database = {
           id: string
           on_date: string | null
           position: number
+          project_id: string | null
+          sprint_id: string | null
           start_min: number
           title: string
           updated_at: string
@@ -82,6 +84,8 @@ export type Database = {
           id?: string
           on_date?: string | null
           position: number
+          project_id?: string | null
+          sprint_id?: string | null
           start_min?: number
           title: string
           updated_at?: string
@@ -99,6 +103,8 @@ export type Database = {
           id?: string
           on_date?: string | null
           position?: number
+          project_id?: string | null
+          sprint_id?: string | null
           start_min?: number
           title?: string
           updated_at?: string
@@ -119,31 +125,54 @@ export type Database = {
             referencedRelation: "habits"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "blocks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blocks_sprint_id_fkey"
+            columns: ["sprint_id"]
+            isOneToOne: false
+            referencedRelation: "sprints"
+            referencedColumns: ["id"]
+          },
         ]
       }
       bucket_tasks: {
         Row: {
           bucket_id: string
           deep: boolean
+          habit_id: string | null
           id: string
           name: string
           position: number
+          project_id: string | null
+          sprint_id: string | null
           user_id: string
         }
         Insert: {
           bucket_id: string
           deep?: boolean
+          habit_id?: string | null
           id?: string
           name: string
           position?: number
+          project_id?: string | null
+          sprint_id?: string | null
           user_id: string
         }
         Update: {
           bucket_id?: string
           deep?: boolean
+          habit_id?: string | null
           id?: string
           name?: string
           position?: number
+          project_id?: string | null
+          sprint_id?: string | null
           user_id?: string
         }
         Relationships: [
@@ -152,6 +181,27 @@ export type Database = {
             columns: ["bucket_id"]
             isOneToOne: false
             referencedRelation: "buckets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bucket_tasks_habit_id_fkey"
+            columns: ["habit_id"]
+            isOneToOne: false
+            referencedRelation: "habits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bucket_tasks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bucket_tasks_sprint_id_fkey"
+            columns: ["sprint_id"]
+            isOneToOne: false
+            referencedRelation: "sprints"
             referencedColumns: ["id"]
           },
         ]
