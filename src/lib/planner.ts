@@ -85,6 +85,12 @@ export interface LogEntry {
   // entries. `durMin != null` marks an entry as a frozen block accomplishment.
   durMin: number | null
   deep: boolean
+  // Today-timeline placement: null for entries not on the "Today's plan"
+  // timeline (rapid-log todos/notes). Frozen from the source Block's
+  // resolve()-computed start at materialize time, then edited independently
+  // via the same chained/anchored re-flow model as `blocks`' resolve().
+  startMin: number | null
+  anchored: boolean
 }
 
 /** A Log Entry with sensible defaults (hand-typed, open task); overrides win.
@@ -104,6 +110,8 @@ export function newLogEntry(over: Partial<LogEntry> & Pick<LogEntry, 'id' | 'onD
     position: 0,
     durMin: null,
     deep: false,
+    startMin: null,
+    anchored: false,
     ...over,
   }
 }
@@ -151,6 +159,21 @@ export interface BlockLogRow {
  *  frozen duration) — the log-primary replacement for a `block_logs` row. */
 function isBlockAccomplishment(e: LogEntry): boolean {
   return e.kind === 'task' && e.state === 'done' && e.durMin != null
+}
+
+/**
+ * `dateIso`'s "Today's plan" timeline: task entries carrying a start time —
+ * excludes rapid-log todos/notes (no `startMin`) and entries no longer part
+ * of today's plan (dropped, migrated away). Sorted by position, the same
+ * order `resolve()` expects.
+ */
+export function onTimelineEntries(entries: LogEntry[], dateIso: string): LogEntry[] {
+  return entries
+    .filter(
+      (e) =>
+        e.onDate === dateIso && e.kind === 'task' && e.startMin != null && e.state !== 'dropped' && e.state !== 'migrated',
+    )
+    .sort((a, b) => a.position - b.position)
 }
 
 /**
@@ -336,6 +359,29 @@ export function resolve<T extends { startMin: number; durMin: number; anchored: 
     cursor = start + b.durMin
   }
   return out
+}
+
+/**
+ * Re-order a subset of a shared-position list (e.g. one day's Log Entries,
+ * where `position` interleaves tasks/notes/events together) without
+ * disturbing entries outside the subset. Entries not named in `orderedIds`
+ * keep their original slot; the named ones are placed into the slots they
+ * collectively occupied, in `orderedIds`' order. Caller re-numbers `position`
+ * from the returned array's index.
+ */
+export function reorderWithinSlots<T extends { id: string }>(dayItems: T[], orderedIds: string[]): T[] {
+  const idSet = new Set(orderedIds)
+  const slots: number[] = []
+  dayItems.forEach((item, i) => {
+    if (idSet.has(item.id)) slots.push(i)
+  })
+  const byId = new Map(dayItems.map((item) => [item.id, item]))
+  const result = [...dayItems]
+  slots.forEach((slotIdx, i) => {
+    const item = byId.get(orderedIds[i])
+    if (item) result[slotIdx] = item
+  })
+  return result
 }
 
 // ---------- habit streaks ----------

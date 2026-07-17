@@ -297,6 +297,7 @@ export type Database = {
       }
       log_entries: {
         Row: {
+          anchored: boolean
           block_id: string | null
           cat: string
           created_at: string
@@ -310,12 +311,14 @@ export type Database = {
           project_id: string | null
           signifier: string
           sprint_id: string | null
+          start_min: number | null
           state: string
           text: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          anchored?: boolean
           block_id?: string | null
           cat?: string
           created_at?: string
@@ -329,12 +332,14 @@ export type Database = {
           project_id?: string | null
           signifier?: string
           sprint_id?: string | null
+          start_min?: number | null
           state?: string
           text: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          anchored?: boolean
           block_id?: string | null
           cat?: string
           created_at?: string
@@ -348,6 +353,7 @@ export type Database = {
           project_id?: string | null
           signifier?: string
           sprint_id?: string | null
+          start_min?: number | null
           state?: string
           text?: string
           updated_at?: string

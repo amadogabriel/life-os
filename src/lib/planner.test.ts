@@ -7,8 +7,10 @@ import {
   fmtDur,
   fortnightReport,
   isoDate,
+  onTimelineEntries,
   parseTime,
   pendingMaterializationDates,
+  reorderWithinSlots,
   resolve,
   streak,
   weekDates,
@@ -190,6 +192,8 @@ const entry = (over: Partial<LogEntry>): LogEntry => ({
   position: 0,
   durMin: null,
   deep: false,
+  startMin: null,
+  anchored: false,
   ...over,
 })
 
@@ -274,5 +278,50 @@ describe('pendingMaterializationDates', () => {
   })
   it('crosses a month boundary correctly', () => {
     expect(pendingMaterializationDates('2026-07-30', '2026-08-01')).toEqual(['2026-07-31', '2026-08-01'])
+  })
+})
+
+describe('onTimelineEntries', () => {
+  it('keeps only task entries with a start time on the given day', () => {
+    const entries = [
+      entry({ id: 'a', startMin: 480, state: 'open' }),
+      entry({ id: 'b', startMin: null, state: 'open' }), // rapid-log todo, not on the timeline
+      entry({ id: 'c', startMin: 540, kind: 'note' }),
+      entry({ id: 'd', startMin: 600, onDate: '2026-07-14' }),
+    ]
+    expect(onTimelineEntries(entries, '2026-07-15').map((e) => e.id)).toEqual(['a'])
+  })
+
+  it('excludes dropped and migrated entries', () => {
+    const entries = [
+      entry({ id: 'a', startMin: 480, state: 'open' }),
+      entry({ id: 'b', startMin: 540, state: 'dropped' }),
+      entry({ id: 'c', startMin: 600, state: 'migrated' }),
+    ]
+    expect(onTimelineEntries(entries, '2026-07-15').map((e) => e.id)).toEqual(['a'])
+  })
+
+  it('sorts by position', () => {
+    const entries = [
+      entry({ id: 'a', startMin: 480, position: 2 }),
+      entry({ id: 'b', startMin: 540, position: 0 }),
+      entry({ id: 'c', startMin: 600, position: 1 }),
+    ]
+    expect(onTimelineEntries(entries, '2026-07-15').map((e) => e.id)).toEqual(['b', 'c', 'a'])
+  })
+})
+
+describe('reorderWithinSlots', () => {
+  it('permutes only the named ids, leaving others in their original slot', () => {
+    const items = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id }))
+    // b, d are the "timeline" subset; a, c, e are untouched siblings sharing
+    // the same position sequence (e.g. rapid-log todos/notes on the same day).
+    const result = reorderWithinSlots(items, ['d', 'b'])
+    expect(result.map((i) => i.id)).toEqual(['a', 'd', 'c', 'b', 'e'])
+  })
+
+  it('is a no-op when the order is unchanged', () => {
+    const items = ['a', 'b', 'c'].map((id) => ({ id }))
+    expect(reorderWithinSlots(items, ['a', 'b', 'c']).map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
 })

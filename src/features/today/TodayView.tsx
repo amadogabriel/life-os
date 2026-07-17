@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
-import { catStyles, depthClass, dowMon, fmt, isoDate, resolve, streak, stripeVar } from '../../lib/planner'
+import { catStyles, depthClass, dowMon, fmt, isoDate, onTimelineEntries, resolve, streak, stripeVar } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from '../week/BlockModal'
 import { DayEditor } from '../week/DayEditor'
+import { TodayEditor } from './TodayEditor'
+import { TodayEntryModal } from './TodayEntryModal'
 
 function Card({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -29,32 +31,42 @@ export function TodayView({ data, actions, today }: ViewProps) {
   const dow = dowMon(today)
   const todayIso = isoDate(today)
   const day = data.days[dow]
-  const resolved = resolve(data.blocksByDow[dow])
-  const log = data.blockLogs[todayIso] ?? {}
+  const timelineEntries = onTimelineEntries(data.logEntries, todayIso)
+  const resolved = resolve(timelineEntries.map((e) => ({ ...e, startMin: e.startMin ?? 0, durMin: e.durMin ?? 30 })))
   const hlog = data.habitLogs[todayIso] ?? {}
   const styles = catStyles(data.buckets)
-  const habitById = new Map(data.habits.map((h) => [h.id, h]))
+  const blockById = new Map(data.blocksByDow.flat().map((b) => [b.id, b]))
 
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [editing, setEditing] = useState<EditingBlock | null>(null)
+  const [editingToday, setEditingToday] = useState(false)
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const [todoText, setTodoText] = useState('')
   const [dumpText, setDumpText] = useState('')
 
   const doneable = resolved.filter((r) => r.block.cat !== 'life')
-  const done = doneable.filter((r) => log[r.block.id]).length
+  const done = doneable.filter((r) => r.block.state === 'done').length
   const pct = doneable.length ? Math.round((done / doneable.length) * 100) : 0
 
   const todaysHabits = data.habits.filter((h) => h.days.includes(dow))
-  // Todos & brain-dump are bullet-journal log entries (shared with the Log tab).
-  const openTaskEntries = data.logEntries.filter((e) => e.kind === 'task' && e.state === 'open' && e.blockId === null)
+  // Todos & brain-dump are bullet-journal log entries (shared with the Log
+  // tab). `startMin == null` excludes on-timeline items (Today's plan) —
+  // otherwise a hand-added timeline entry would double-list here too.
+  const openTaskEntries = data.logEntries.filter(
+    (e) => e.kind === 'task' && e.state === 'open' && e.blockId === null && e.startMin == null,
+  )
   const todoEntries = data.logEntries.filter(
-    (e) => e.kind === 'task' && e.blockId === null && (e.state === 'open' || (e.state === 'done' && e.onDate === todayIso)),
+    (e) =>
+      e.kind === 'task' &&
+      e.blockId === null &&
+      e.startMin == null &&
+      (e.state === 'open' || (e.state === 'done' && e.onDate === todayIso)),
   )
   const todayNotes = data.logEntries.filter((e) => e.kind === 'note' && e.onDate === todayIso)
   const deepMins = resolved.filter((r) => r.block.deep).reduce((x, r) => x + r.block.durMin, 0)
 
   const nowMin = today.getHours() * 60 + today.getMinutes()
-  const nextUp = resolved.filter((r) => r.start + r.block.durMin > nowMin && !log[r.block.id])[0]
+  const nextUp = resolved.filter((r) => r.start + r.block.durMin > nowMin && r.block.state !== 'done')[0]
 
   async function submitTodo() {
     const t = todoText.trim()
@@ -93,7 +105,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
             <div className="text-[11px] uppercase tracking-[0.08em]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)' }}>
               next up
             </div>
-            {fmt(nextUp.start)} — {nextUp.block.title}
+            {fmt(nextUp.start)} — {nextUp.block.text}
           </div>
         )}
       </div>
@@ -176,45 +188,49 @@ export function TodayView({ data, actions, today }: ViewProps) {
               <button className="bk-edit" title="Pull today's plan into the log again" onClick={() => actions.materializeDay(todayIso)}>
                 ↻
               </button>
-              <button className="bk-edit" title="Design today" onClick={() => setEditingDay(dow)}>
+              <button className="bk-edit" title="Edit today" onClick={() => setEditingToday(true)}>
                 ✎
               </button>
             </div>
           }
         >
           <div style={{ columns: 2, columnGap: 0 }}>
-            {resolved.map(({ block: b, start }) => {
-              const checked = !!log[b.id]
+            {resolved.map(({ block: e, start }) => {
+              const checked = e.state === 'done'
+              const habitId = e.blockId ? blockById.get(e.blockId)?.habitId : null
               return (
                 <div
-                  key={b.id}
-                  className={`citem s-${b.cat}${depthClass(b.deep)}${checked ? ' done' : ''}`}
-                  style={{ ...stripeVar(styles[b.cat]), breakInside: 'avoid', gridTemplateColumns: '22px 46px 1fr', gap: 8, padding: '9px 12px' }}
+                  key={e.id}
+                  className={`citem s-${e.cat}${depthClass(e.deep)}${checked ? ' done' : ''}`}
+                  style={{ ...stripeVar(styles[e.cat]), breakInside: 'avoid', gridTemplateColumns: '22px 46px 1fr', gap: 8, padding: '9px 12px' }}
                 >
                   <button
                     className="chk"
                     role="checkbox"
                     aria-checked={checked}
-                    onClick={() => actions.toggleBlockLog(b.id, todayIso)}
+                    onClick={() =>
+                      e.blockId
+                        ? actions.toggleBlockLog(e.blockId, todayIso)
+                        : actions.updateLogEntry(e.id, { state: checked ? 'open' : 'done' })
+                    }
                   >
                     <Check />
                   </button>
                   <div className="time">{fmt(start)}</div>
                   <button
                     className="cursor-pointer border-0 bg-transparent p-0 text-left"
-                    title="Edit block"
-                    onClick={() => setEditing({ dow, blockId: b.id })}
+                    title="Edit today's entry"
+                    onClick={() => setEditingEntryId(e.id)}
                     style={{ color: 'inherit' }}
                   >
                     <div className="title">
-                      {b.title}
-                      {b.habitId && (
-                        <span title={`Logs habit: ${habitById.get(b.habitId)?.name ?? ''}`} style={{ marginLeft: 5, fontSize: 11 }}>
+                      {e.text}
+                      {habitId && (
+                        <span title={`Logs habit: ${data.habits.find((h) => h.id === habitId)?.name ?? ''}`} style={{ marginLeft: 5, fontSize: 11 }}>
                           🔥
                         </span>
                       )}
                     </div>
-                    {b.detail && <div className="desc">{b.detail}</div>}
                   </button>
                 </div>
               )
@@ -294,6 +310,16 @@ export function TodayView({ data, actions, today }: ViewProps) {
       )}
       {editing && (
         <BlockModal data={data} actions={actions} editing={editing} onClose={() => setEditing(null)} />
+      )}
+      {editingToday && <TodayEditor data={data} actions={actions} todayIso={todayIso} onClose={() => setEditingToday(false)} />}
+      {editingEntryId && (
+        <TodayEntryModal
+          data={data}
+          actions={actions}
+          entryId={editingEntryId}
+          todayIso={todayIso}
+          onClose={() => setEditingEntryId(null)}
+        />
       )}
     </div>
   )

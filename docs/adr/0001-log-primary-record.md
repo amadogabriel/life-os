@@ -37,3 +37,28 @@ row. `block_logs` is retired to a read-only backup.
   they aren't checkable commitments and would otherwise sit forever open in the
   Migration ritual. They can still be checked off manually (the check-off
   inserts their entry on demand), and the report already excludes `life`.
+
+## Amendment (2026-07-17): `start_min` reversal for "Today's plan"
+
+The bujo-not-a-timeline stance still holds for **past** days — Report/Log stay
+position-ordered off frozen `dur_min`/`deep`, no re-flow — but not for
+**today**: the user tracks deep/shallow work hours by clock time, so the
+"Today's plan" card needs each entry's own editable `start_min` and `anchored`
+flag, mirroring `blocks`.
+
+- `log_entries` gains `start_min` (nullable — null for entries not on today's
+  timeline, i.e. rapid-log todos/notes) and `anchored`. `materialize_day` now
+  freezes both: `start_min` is the Template's `resolve()`-computed start at
+  freeze time (not the Block's raw, possibly-stale `start_min` — an unanchored
+  Block's own value is meaningless); `anchored` is copied from the Block as a
+  starting point, then edited independently of the Template from here on,
+  through the same chained/anchored re-flow model `resolve()` already applies
+  to `blocks`.
+- `materialize_day`'s `cat <> 'life'` filter is dropped — life Blocks (sleep,
+  meals) get an entry too, so today's timeline has no holes. They stay
+  excluded from the Migration ritual and completion % exactly as before, now
+  via an explicit `cat <> 'life'` filter at each call site (previously true by
+  construction, since a life entry couldn't exist).
+- Entries already materialized before this shipped are backfilled once, from
+  the Template as it stands now (best-effort — approximate for a Template
+  that's since changed, same caveat as `0006`'s snapshot backfill).

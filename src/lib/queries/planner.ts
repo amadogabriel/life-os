@@ -17,7 +17,7 @@ import type {
   Sprint,
   SprintStatus,
 } from '../planner'
-import { blockLogRowsFromEntries, doneBlockMap, newLogEntry } from '../planner'
+import { blockLogRowsFromEntries, doneBlockMap, newLogEntry, reorderWithinSlots } from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -223,6 +223,8 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     position: e.position,
     durMin: e.dur_min,
     deep: e.deep,
+    startMin: e.start_min,
+    anchored: e.anchored,
   }))
 
   return {
@@ -320,6 +322,7 @@ export interface PlannerActions {
   deleteTodo(id: string): Promise<void>
   addDump(text: string): Promise<void>
   deleteDump(id: string): Promise<void>
+  /** Returns the new entry's id (e.g. to immediately open its edit modal). */
   addLogEntry(entry: {
     onDate: string
     kind: LogKind
@@ -328,17 +331,38 @@ export interface PlannerActions {
     signifier?: LogSignifier
     projectId?: string | null
     sprintId?: string | null
-  }): Promise<void>
+    durMin?: number | null
+    startMin?: number | null
+    anchored?: boolean
+  }): Promise<string>
   updateLogEntry(
     id: string,
     fields: Partial<
-      Pick<LogEntry, 'text' | 'kind' | 'state' | 'signifier' | 'cat' | 'onDate' | 'position' | 'migratedTo' | 'projectId' | 'sprintId'>
+      Pick<
+        LogEntry,
+        | 'text'
+        | 'kind'
+        | 'state'
+        | 'signifier'
+        | 'cat'
+        | 'onDate'
+        | 'position'
+        | 'migratedTo'
+        | 'projectId'
+        | 'sprintId'
+        | 'durMin'
+        | 'startMin'
+        | 'anchored'
+      >
     >,
   ): Promise<void>
   deleteLogEntry(id: string): Promise<void>
   /** Carry an open entry to `toDate`: create a fresh open copy there and mark
    *  the original migrated (or scheduled, when moving to a future day). */
   migrateLogEntry(id: string, toDate: string, asScheduled?: boolean): Promise<void>
+  /** Re-number a day's on-timeline Log Entries to match the given id order
+   *  (drag reorder on the "Today's plan" timeline). */
+  reorderLogEntries(dateIso: string, orderedIds: string[]): Promise<void>
   addProject(name: string): Promise<string>
   updateProject(id: string, fields: Partial<Pick<Project, 'name' | 'goal' | 'status'>>): Promise<void>
   deleteProject(id: string): Promise<void>
@@ -417,6 +441,8 @@ export function usePlannerActions(userId: string): PlannerActions {
                 position,
                 durMin: blk?.durMin ?? null,
                 deep: blk?.deep ?? false,
+                startMin: blk?.startMin ?? null,
+                anchored: blk?.anchored ?? false,
               }),
             ]
         return { ...data, logEntries, blockLogs: doneBlockMap(logEntries) }
@@ -432,8 +458,10 @@ export function usePlannerActions(userId: string): PlannerActions {
         ).error
       } else {
         // Edge: this block's day wasn't frozen yet (e.g. checked before the
-        // freeze reached it, or a life block that is never auto-materialized).
-        // Freeze just this block's entry as done — never touching siblings.
+        // freeze reached it). Freeze just this block's entry as done — never
+        // touching siblings. start_min is a best-effort copy of the block's
+        // own value (not a full resolve()-computed layout); materialize_day
+        // is the source of truth for that.
         error = (
           await supabase.from('log_entries').insert({
             user_id: userId,
@@ -445,6 +473,8 @@ export function usePlannerActions(userId: string): PlannerActions {
             block_id: blockId,
             dur_min: blk?.durMin ?? null,
             deep: blk?.deep ?? false,
+            start_min: blk?.startMin ?? null,
+            anchored: blk?.anchored ?? false,
             position,
           })
         ).error
@@ -696,19 +726,27 @@ export function usePlannerActions(userId: string): PlannerActions {
         (e) => e.onDate === entry.onDate,
       )
       const position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
-      const { error } = await supabase.from('log_entries').insert({
-        user_id: userId,
-        on_date: entry.onDate,
-        kind: entry.kind,
-        text: entry.text,
-        cat: entry.cat ?? 'open',
-        signifier: entry.signifier ?? '',
-        project_id: entry.projectId ?? null,
-        sprint_id: entry.sprintId ?? null,
-        position,
-      })
+      const { data, error } = await supabase
+        .from('log_entries')
+        .insert({
+          user_id: userId,
+          on_date: entry.onDate,
+          kind: entry.kind,
+          text: entry.text,
+          cat: entry.cat ?? 'open',
+          signifier: entry.signifier ?? '',
+          project_id: entry.projectId ?? null,
+          sprint_id: entry.sprintId ?? null,
+          dur_min: entry.durMin ?? null,
+          start_min: entry.startMin ?? null,
+          anchored: entry.anchored ?? false,
+          position,
+        })
+        .select('id')
+        .single()
       if (error) throw error
       await invalidate()
+      return data.id
     },
 
     async updateLogEntry(id, fields) {
@@ -729,10 +767,38 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.migratedTo !== undefined && { migrated_to: fields.migratedTo }),
           ...(fields.projectId !== undefined && { project_id: fields.projectId }),
           ...(fields.sprintId !== undefined && { sprint_id: fields.sprintId }),
+          ...(fields.durMin !== undefined && { dur_min: fields.durMin }),
+          ...(fields.startMin !== undefined && { start_min: fields.startMin }),
+          ...(fields.anchored !== undefined && { anchored: fields.anchored }),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
       if (error) invalidate()
+    },
+
+    /** Re-number a day's on-timeline entries to match the given id order,
+     *  without disturbing that day's other entries (todos/notes share the
+     *  same position sequence). */
+    async reorderLogEntries(dateIso: string, orderedIds: string[]) {
+      let renumbered: { id: string; position: number }[] = []
+      patch((data) => {
+        const dayEntries = data.logEntries
+          .filter((e) => e.onDate === dateIso)
+          .sort((a, b) => a.position - b.position)
+        const reordered = reorderWithinSlots(dayEntries, orderedIds).map((e, position) => ({ ...e, position }))
+        renumbered = reordered.map((e) => ({ id: e.id, position: e.position }))
+        const byId = new Map(reordered.map((e) => [e.id, e]))
+        return { ...data, logEntries: data.logEntries.map((e) => byId.get(e.id) ?? e) }
+      })
+      const results = await Promise.all(
+        renumbered.map(({ id, position }) => supabase.from('log_entries').update({ position }).eq('id', id)),
+      )
+      const failed = results.find((r) => r.error)
+      if (failed) {
+        invalidate()
+        throw failed.error
+      }
+      await invalidate()
     },
 
     async deleteLogEntry(id) {

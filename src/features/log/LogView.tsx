@@ -74,9 +74,13 @@ export function LogView({ data, actions, today }: ViewProps) {
     await actions.addLogEntry({ onDate: entryDate, kind, text: t })
   }
 
-  // migration ritual — open tasks stranded before today
+  // migration ritual — open tasks stranded before today. Life-category
+  // entries (sleep/meals) are materialized housekeeping, not commitments to
+  // decide the fate of — excluded here exactly as they're excluded from
+  // completion % (they simply never existed as entries before this filter
+  // was needed).
   const staleOpen = data.logEntries
-    .filter((e) => e.kind === 'task' && e.state === 'open' && e.onDate < realTodayIso)
+    .filter((e) => e.kind === 'task' && e.state === 'open' && e.cat !== 'life' && e.onDate < realTodayIso)
     .sort((a, b) => a.onDate.localeCompare(b.onDate))
   async function carryAll() {
     for (const e of staleOpen) await actions.migrateLogEntry(e.id, realTodayIso, false)
@@ -267,7 +271,9 @@ export function LogView({ data, actions, today }: ViewProps) {
         {days.length === 0 && <div className="hint px-0">Nothing logged yet — start on the Day tab or up top.</div>}
         <div className="flex flex-col gap-4">
           {days.map((iso) => {
-            const entries = data.logEntries.filter((e) => e.onDate === iso).sort((a, b) => a.position - b.position)
+            const entries = data.logEntries
+              .filter((e) => e.onDate === iso && e.cat !== 'life')
+              .sort((a, b) => a.position - b.position)
             const blocks = data.blockLogRows.filter((r) => r.dateIso === iso && r.cat !== 'life')
             const deep = blocks.filter((r) => r.deep).length
             const habits = Object.keys(data.habitLogs[iso] ?? {}).length
@@ -313,7 +319,9 @@ export function LogView({ data, actions, today }: ViewProps) {
 
   // ---------- single day (focus + capture) ----------
   function dayView() {
-    const entries = data.logEntries.filter((e) => e.onDate === selIso).sort((a, b) => a.position - b.position)
+    const entries = data.logEntries
+      .filter((e) => e.onDate === selIso && e.cat !== 'life')
+      .sort((a, b) => a.position - b.position)
     const tasks = entries.filter((e) => e.kind === 'task')
     const openTasks = tasks.filter((e) => e.state === 'open').length
     const doneTasks = tasks.filter((e) => e.state === 'done').length

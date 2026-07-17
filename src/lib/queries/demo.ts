@@ -3,7 +3,7 @@
 // env is configured — lets you run and click through the app with no project.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Block, Cat, LogEntry, LogState } from '../planner'
-import { blockLogRowsFromEntries, doneBlockMap, dowMon, newLogEntry } from '../planner'
+import { blockLogRowsFromEntries, doneBlockMap, dowMon, newLogEntry, reorderWithinSlots, resolve } from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -159,6 +159,8 @@ export function useDemoActions(): PlannerActions {
               position,
               durMin: blk?.durMin ?? null,
               deep: blk?.deep ?? false,
+              startMin: blk?.startMin ?? null,
+              anchored: blk?.anchored ?? false,
             }),
           ]
         }
@@ -178,23 +180,28 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) => {
         const dow = dowMon(new Date(`${dateIso}T00:00:00`))
         const frozen = new Set(d.logEntries.filter((e) => e.onDate === dateIso && e.blockId).map((e) => e.blockId))
-        const toAdd = (d.blocksByDow[dow] ?? []).filter((b) => b.cat !== 'life' && !frozen.has(b.id))
+        const blocks = d.blocksByDow[dow] ?? []
+        const resolved = resolve(blocks)
         let position = d.logEntries
           .filter((e) => e.onDate === dateIso)
           .reduce((m, e) => Math.max(m, e.position + 1), 0)
-        const added: LogEntry[] = toAdd.map((b) =>
-          newLogEntry({
-            id: nid(),
-            onDate: dateIso,
-            state: 'open',
-            text: b.title,
-            cat: b.cat,
-            blockId: b.id,
-            position: position++,
-            durMin: b.durMin,
-            deep: b.deep,
-          }),
-        )
+        const added: LogEntry[] = resolved
+          .filter((r) => !frozen.has(r.block.id))
+          .map((r) =>
+            newLogEntry({
+              id: nid(),
+              onDate: dateIso,
+              state: 'open',
+              text: r.block.title,
+              cat: r.block.cat,
+              blockId: r.block.id,
+              position: position++,
+              durMin: r.block.durMin,
+              deep: r.block.deep,
+              startMin: r.start,
+              anchored: r.block.anchored,
+            }),
+          )
         count = added.length
         return { ...d, logEntries: [...d.logEntries, ...added] }
       })
@@ -290,8 +297,9 @@ export function useDemoActions(): PlannerActions {
       })),
     deleteDump: (id) => mutate((d) => ({ ...d, dumps: d.dumps.filter((x) => x.id !== id) })),
 
-    addLogEntry: (entry) =>
-      mutate((d) => {
+    async addLogEntry(entry) {
+      const id = nid()
+      await mutate((d) => {
         const onDay = d.logEntries.filter((e) => e.onDate === entry.onDate)
         const position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
         return {
@@ -299,7 +307,7 @@ export function useDemoActions(): PlannerActions {
           logEntries: [
             ...d.logEntries,
             {
-              id: nid(),
+              id,
               onDate: entry.onDate,
               kind: entry.kind,
               state: 'open',
@@ -311,15 +319,26 @@ export function useDemoActions(): PlannerActions {
               projectId: entry.projectId ?? null,
               sprintId: entry.sprintId ?? null,
               position,
-              durMin: null,
+              durMin: entry.durMin ?? null,
               deep: false,
+              startMin: entry.startMin ?? null,
+              anchored: entry.anchored ?? false,
             },
           ],
         }
-      }),
+      })
+      return id
+    },
     updateLogEntry: (id, fields) =>
       mutate((d) => ({ ...d, logEntries: d.logEntries.map((e) => (e.id === id ? { ...e, ...fields } : e)) })),
     deleteLogEntry: (id) => mutate((d) => ({ ...d, logEntries: d.logEntries.filter((e) => e.id !== id) })),
+    reorderLogEntries: (dateIso, orderedIds) =>
+      mutate((d) => {
+        const dayEntries = d.logEntries.filter((e) => e.onDate === dateIso).sort((a, b) => a.position - b.position)
+        const reordered = reorderWithinSlots(dayEntries, orderedIds).map((e, position) => ({ ...e, position }))
+        const byId = new Map(reordered.map((e) => [e.id, e]))
+        return { ...d, logEntries: d.logEntries.map((e) => byId.get(e.id) ?? e) }
+      }),
     migrateLogEntry: (id, toDate, asScheduled = false) =>
       mutate((d) => {
         const src = d.logEntries.find((e) => e.id === id)
@@ -351,6 +370,8 @@ export function useDemoActions(): PlannerActions {
               position,
               durMin: null,
               deep: false,
+              startMin: null,
+              anchored: false,
             },
           ],
         }
