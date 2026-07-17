@@ -5,7 +5,6 @@ import {
   addDays,
   blockStyle,
   CATS,
-  catStyles,
   fmtDur,
   isoDate,
   streak,
@@ -35,7 +34,6 @@ const ago = (idx: number, unit: 'week' | 'month') =>
 
 export function ReportView({ data, today }: ViewProps) {
   const [mode, setMode] = useState<'week' | 'month'>('week')
-  const styles = catStyles(data.buckets)
   const projectById = new Map(data.projects.map((p) => [p.id, p]))
   const bucketById = new Map(data.buckets.map((bk) => [bk.id, bk]))
 

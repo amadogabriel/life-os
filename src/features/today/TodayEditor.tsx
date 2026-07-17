@@ -44,10 +44,18 @@ export function TodayEditor({
       onDate: todayIso,
       kind: 'task',
       text: task.name,
+      // Record the source Bucket (#18) so the entry groups into and recolors
+      // live with it; `cat` is stamped from the bucket on write (ADR-0003).
+      bucketId: bucket.id,
       cat: bucket.cat,
       durMin: 60,
       startMin: nextStartMin(),
       anchored: false,
+      // Carry the task's project trace (#21) onto today's entry so a check-off
+      // accrues to the project. (Habit traces ride on Blocks, not on directly
+      // added today entries — those have no Block to mirror the habit from.)
+      projectId: task.projectId,
+      sprintId: task.sprintId,
     })
   }
 

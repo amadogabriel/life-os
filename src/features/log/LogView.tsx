@@ -6,7 +6,6 @@ import {
   addDays,
   blockStyle,
   bullet,
-  catStyles,
   depthClass,
   fmtDur,
   isoDate,
@@ -65,7 +64,6 @@ export function LogView({ data, actions, today }: ViewProps) {
   const selIso = isoDate(sel)
   const isToday = offset === 0
   const isFuture = offset > 0
-  const styles = catStyles(data.buckets) // habit chips (cat-keyed, #19's job)
   const bucketById = new Map(data.buckets.map((bk) => [bk.id, bk]))
   // Log Entries / frozen block rows recolor LIVE through their Bucket (#18).
   const entryStyle = (e: { bucketId: string | null; cat: LogEntry['cat'] }) =>

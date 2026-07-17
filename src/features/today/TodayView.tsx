@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
-import { blockStyle, catStyles, depthClass, dowMon, fmt, isoDate, materializes, onTimelineEntries, resolve, streak, stripeVar } from '../../lib/planner'
+import { blockStyle, depthClass, dowMon, fmt, isoDate, materializes, onTimelineEntries, resolve, streak, stripeVar } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from '../planner/BlockModal'
 import { DayEditor } from '../planner/DayEditor'
 import { TodayEditor } from './TodayEditor'
@@ -34,7 +34,6 @@ export function TodayView({ data, actions, today }: ViewProps) {
   const timelineEntries = onTimelineEntries(data.logEntries, todayIso)
   const resolved = resolve(timelineEntries.map((e) => ({ ...e, startMin: e.startMin ?? 0, durMin: e.durMin ?? 30 })))
   const hlog = data.habitLogs[todayIso] ?? {}
-  const styles = catStyles(data.buckets)
   const blockById = new Map(data.blocksByDow.flat().map((b) => [b.id, b]))
 
   const [editingDay, setEditingDay] = useState<number | null>(null)

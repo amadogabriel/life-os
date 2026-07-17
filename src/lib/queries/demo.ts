@@ -6,9 +6,13 @@ import type { Block, Cat, LogEntry, LogState } from '../planner'
 import {
   blockLogRowsFromEntries,
   bucketIdForCat,
+  detachHabit,
+  detachProject,
+  detachSprint,
   doneBlockMap,
   dowOfIso,
   forkCopies,
+  freezeBlockEntry,
   isoDate,
   manilaDate,
   materializes,
@@ -44,7 +48,15 @@ function buildDemoData(): PlannerData {
     color: '',
     // Life-type buckets are uncounted recovery housekeeping (ADR-0003 #17).
     counted: bk.cat !== 'life',
-    tasks: bk.tasks.map((name, i) => ({ id: nid(), name, position: i, deep: isDeepDefault(bk.cat, name) })),
+    tasks: bk.tasks.map((name, i) => ({
+      id: nid(),
+      name,
+      position: i,
+      deep: isDeepDefault(bk.cat, name),
+      habitId: null,
+      projectId: null,
+      sprintId: null,
+    })),
   }))
   const bucketByCat = new Map(buckets.map((bk) => [bk.cat, bk.id]))
   return {
@@ -63,6 +75,8 @@ function buildDemoData(): PlannerData {
         anchored: b.anchored,
         deep: isDeepDefault(b.cat, b.title),
         habitId: null,
+        projectId: null,
+        sprintId: null,
       })),
     ),
     dayForks: {},
@@ -128,7 +142,13 @@ function load(): PlannerData {
           // Buckets written before the counted flag existed: Life uncounted,
           // everything else counted (mirrors migration 0016).
           counted: bk.counted ?? bk.cat !== 'life',
-          tasks: bk.tasks.map((t) => ({ ...t, deep: t.deep ?? isDeepDefault(bk.cat, t.name) })),
+          tasks: bk.tasks.map((t) => ({
+            ...t,
+            deep: t.deep ?? isDeepDefault(bk.cat, t.name),
+            habitId: t.habitId ?? null,
+            projectId: t.projectId ?? null,
+            sprintId: t.sprintId ?? null,
+          })),
         })),
         blocksByDow: (d.blocksByDow ?? []).map((bs) =>
           bs.map((b) => ({
@@ -136,6 +156,8 @@ function load(): PlannerData {
             bucketId: b.bucketId ?? bucketByCat.get(b.cat) ?? null,
             deep: b.deep ?? isDeepDefault(b.cat, b.title),
             habitId: b.habitId ?? null,
+            projectId: b.projectId ?? null,
+            sprintId: b.sprintId ?? null,
           })),
         ),
         // Link habits written before bucket_id existed to their cat's bucket
@@ -175,6 +197,14 @@ export function useDemoActions(): PlannerActions {
       return { ...d, [mapKey]: logs }
     })
   const renumber = (blocks: Block[]) => blocks.map((b, position) => ({ ...b, position }))
+  // Apply `fn` to every Block across the Template AND all Day Plan (fork)
+  // blocks — used to mirror the DB's ON DELETE SET NULL across trace deletes.
+  const mapAllBlocks = (d: PlannerData, fn: (b: Block) => Block): Pick<PlannerData, 'blocksByDow' | 'dayForks'> => ({
+    blocksByDow: d.blocksByDow.map((bs) => bs.map(fn)),
+    dayForks: Object.fromEntries(Object.entries(d.dayForks).map(([date, bs]) => [date, bs.map(fn)])),
+  })
+  const mapAllTasks = (d: PlannerData, fn: (t: PlannerData['buckets'][number]['tasks'][number]) => PlannerData['buckets'][number]['tasks'][number]) =>
+    d.buckets.map((bk) => ({ ...bk, tasks: bk.tasks.map(fn) }))
   const mapDow = (d: PlannerData, dow: number, fn: (blocks: Block[]) => Block[]) => ({
     ...d,
     blocksByDow: d.blocksByDow.map((blocks, i) => (i === dow ? renumber(fn(blocks)) : blocks)),
@@ -257,22 +287,10 @@ export function useDemoActions(): PlannerActions {
           .reduce((m, e) => Math.max(m, e.position + 1), 0)
         const added: LogEntry[] = resolved
           .filter((r) => !frozen.has(r.block.id))
-          .map((r) =>
-            newLogEntry({
-              id: nid(),
-              onDate: dateIso,
-              state: 'open',
-              text: r.block.title,
-              bucketId: r.block.bucketId,
-              cat: r.block.cat,
-              blockId: r.block.id,
-              position: position++,
-              durMin: r.block.durMin,
-              deep: r.block.deep,
-              startMin: r.start,
-              anchored: r.block.anchored,
-            }),
-          )
+          // freezeBlockEntry stamps the block's bucketId (#18) AND its
+          // project/sprint trace (#21) onto the frozen entry, mirroring the SQL
+          // materialize_day. Uncounted buckets were already filtered above (#17).
+          .map((r) => freezeBlockEntry(r.block, dateIso, r.start, position++, nid()))
         count = added.length
         return { ...d, logEntries: [...d.logEntries, ...added] }
       })
@@ -284,7 +302,7 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) =>
         mapDow(d, dow, (blocks) => [
           ...blocks,
-          { id, dow, position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null },
+          { id, dow, position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null, projectId: null, sprintId: null },
         ]),
       )
       return id
@@ -349,7 +367,7 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) =>
         mapFork(d, dateIso, (blocks) => [
           ...blocks,
-          { id, dow: dowOfIso(dateIso), position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null },
+          { id, dow: dowOfIso(dateIso), position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null, projectId: null, sprintId: null },
         ]),
       )
       return id
@@ -375,7 +393,15 @@ export function useDemoActions(): PlannerActions {
               { id: nid(), name: habit.name, bucketId: habit.bucketId, cat: habit.cat, days: habit.days, position },
             ],
       })),
-    deleteHabit: (id) => mutate((d) => ({ ...d, habits: d.habits.filter((h) => h.id !== id) })),
+    deleteHabit: (id) =>
+      mutate((d) => ({
+        ...d,
+        habits: d.habits.filter((h) => h.id !== id),
+        // ON DELETE SET NULL mirror (#20): degrade every task/block traced to
+        // this habit to vague — the chip survives, the link dies.
+        buckets: mapAllTasks(d, (t) => detachHabit(t, id)),
+        ...mapAllBlocks(d, (b) => detachHabit(b, id)),
+      })),
 
     saveBucket: (bucket, position) =>
       mutate((d) => ({
@@ -383,12 +409,12 @@ export function useDemoActions(): PlannerActions {
         buckets: bucket.id
           ? d.buckets.map((bk) =>
               bk.id === bucket.id
-                ? { ...bk, name: bucket.name, cat: bucket.cat, color: bucket.color, counted: bucket.counted, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) }
+                ? { ...bk, name: bucket.name, cat: bucket.cat, color: bucket.color, counted: bucket.counted, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i, habitId: t.habitId ?? null, projectId: t.projectId ?? null, sprintId: t.sprintId ?? null })) }
                 : bk,
             )
           : [
               ...d.buckets,
-              { id: nid(), name: bucket.name, cat: bucket.cat, position, color: bucket.color, counted: bucket.counted, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) },
+              { id: nid(), name: bucket.name, cat: bucket.cat, position, color: bucket.color, counted: bucket.counted, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i, habitId: t.habitId ?? null, projectId: t.projectId ?? null, sprintId: t.sprintId ?? null })) },
             ],
       })),
     deleteBucket: (id) =>
@@ -519,6 +545,11 @@ export function useDemoActions(): PlannerActions {
         projects: d.projects.filter((p) => p.id !== id),
         sprints: d.sprints.filter((s) => s.projectId !== id),
         logEntries: d.logEntries.map((e) => (e.projectId === id ? { ...e, projectId: null, sprintId: null } : e)),
+        // ON DELETE SET NULL mirror (#21): degrade tasks/blocks traced to this
+        // project to vague (project + sprint both nulled — a sprint can't
+        // outlive its project).
+        buckets: mapAllTasks(d, (t) => detachProject(t, id)),
+        ...mapAllBlocks(d, (b) => detachProject(b, id)),
       })),
     async addSprint(projectId, name) {
       const id = nid()
@@ -538,6 +569,10 @@ export function useDemoActions(): PlannerActions {
         ...d,
         sprints: d.sprints.filter((s) => s.id !== id),
         logEntries: d.logEntries.map((e) => (e.sprintId === id ? { ...e, sprintId: null } : e)),
+        // ON DELETE SET NULL mirror (#21): null only the sprint ref on traced
+        // tasks/blocks — the project trace stays.
+        buckets: mapAllTasks(d, (t) => detachSprint(t, id)),
+        ...mapAllBlocks(d, (b) => detachSprint(b, id)),
       })),
     scheduleEntryToDate: (entryId, dateIso) =>
       mutate((d) => {
@@ -610,6 +645,8 @@ export function useDemoActions(): PlannerActions {
             anchored: position === 0,
             deep: false,
             habitId: null,
+            projectId: null,
+            sprintId: null,
           }
           cur += it.mins
           return b
