@@ -2,7 +2,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ViewProps } from '../../App'
 import {
   addDays,
-  catStyles,
+  blockStyle,
   depthClass,
   dowOfIso,
   fmt,
@@ -60,7 +60,6 @@ export function PlannerView({ data, actions, today }: ViewProps) {
   const [editingEntry, setEditingEntry] = useState<{ id: string; dateIso: string } | null>(null)
   const [forkPrompt, setForkPrompt] = useState<ForkPrompt | null>(null)
   const [dragVis, setDragVis] = useState<DragVis | null>(null)
-  const styles = catStyles(data.buckets)
 
   const todayDate = manilaDate(today)
   const todayIso = isoDate(todayDate)
@@ -396,7 +395,7 @@ export function PlannerView({ data, actions, today }: ViewProps) {
       </div>
       <div className="mb-5 flex flex-wrap gap-x-[15px] gap-y-[7px]">
         {data.buckets.map((bk) => (
-          <span key={bk.id} className={`legend-chip s-${bk.cat}`} style={stripeVar(styles[bk.cat])}>
+          <span key={bk.id} className={`legend-chip s-${bk.cat}`} style={stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets))}>
             <span className="dot" />
             {bk.name}
           </span>
@@ -502,7 +501,7 @@ export function PlannerView({ data, actions, today }: ViewProps) {
                       key={it.key}
                       className={`block s-${it.cat}${depthClass(it.deep)}${it.cat === 'open' ? ' is-open' : ''}${it.conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}${hpx < 22 ? ' tiny' : ''}`}
                       style={{
-                        ...stripeVar(styles[it.cat]),
+                        ...stripeVar(blockStyle({ bucketId: it.bucketId, cat: it.cat }, data.buckets)),
                         top,
                         height: hpx,
                         ...(isPast && { cursor: 'default' }),

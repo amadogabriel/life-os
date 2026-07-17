@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { Bucket, PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { catStyles, stripeVar } from '../../lib/planner'
+import { blockStyle, stripeVar } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
 import { BucketModal } from '../design/BucketModal'
@@ -41,7 +41,6 @@ export function DayEditor({
   const idMap = useRef<Record<string, string>>({})
   const activeFork = forkedDate
   const blocks = activeFork ? (data.dayForks[activeFork] ?? []) : data.blocksByDow[dow]
-  const styles = catStyles(data.buckets)
 
   /** The fork date edits should target — forking a lazy projected day on first
    *  use. Returns null when editing the weekday Template ("Every weekday"). */
@@ -86,6 +85,8 @@ export function DayEditor({
     // addBlock forks first if lazy and returns the new block's real id.
     const id = await addBlock(blocks.length)
     await actions.updateBlock(id, {
+      // Record which Bucket this block came from; `cat` is stamped derived data.
+      bucketId: bucket.id,
       cat: bucket.cat,
       title: task.name,
       durMin: 60,
@@ -101,7 +102,7 @@ export function DayEditor({
         <div className="daycard" style={{ maxHeight: 'calc(90vh - 180px)', overflowY: 'auto' }}>
           <TimelineEditor
             items={blocks}
-            styles={styles}
+            buckets={data.buckets}
             onSetMins={(id, mins) => updateBlock(id, { durMin: mins })}
             onSetStart={(id, startMin) => updateBlock(id, { startMin })}
             onReorder={(ids) => reorderBlocks(ids)}
@@ -122,7 +123,7 @@ export function DayEditor({
           {data.buckets.map((bk) => (
             <div key={bk.id} className="bucket shrink-0">
               <div className="bucket-head">
-                <span className={`hname s-${bk.cat}`} style={stripeVar(styles[bk.cat])}>
+                <span className={`hname s-${bk.cat}`} style={stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets))}>
                   <span className="dot" />
                   {bk.name}
                 </span>
@@ -135,7 +136,7 @@ export function DayEditor({
                   <button
                     key={tk.id}
                     className={`chip s-${bk.cat}`}
-                    style={stripeVar(styles[bk.cat])}
+                    style={stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets))}
                     draggable
                     onDragStart={(e) => {
                       e.dataTransfer.setData('text/plain', bk.id + '|' + tk.id)

@@ -211,6 +211,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       id: b.id,
       dow: b.dow,
       position: b.position,
+      bucketId: b.bucket_id ?? null,
       cat: b.cat as Cat,
       title: b.title,
       detail: b.detail,
@@ -326,10 +327,14 @@ export interface PlannerActions {
   materializeDay(dateIso: string): Promise<number>
   addBlock(dow: number, position: number): Promise<string>
   /** Works on Template AND Day Plan (fork) Blocks — both live in `blocks`,
-   *  addressed by id. */
+   *  addressed by id. Placing/creating records the source Bucket in `bucketId`;
+   *  the block editor writes `bucketId` and stamps `cat` from the chosen bucket
+   *  (ADR-0003). */
   updateBlock(
     id: string,
-    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>,
+    fields: Partial<
+      Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>
+    >,
   ): Promise<void>
   /** Works on Template AND Day Plan (fork) Blocks. */
   deleteBlock(id: string): Promise<void>
@@ -586,7 +591,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       return data.id
     },
 
-    async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>) {
+    async updateBlock(id: string, fields: Partial<Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>) {
       // Optimistic: rapid ± duration taps must see each other's result. The id
       // may name a Template block or a Day Plan (fork) block — same table.
       patch((data) => ({
@@ -599,6 +604,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       const { error } = await supabase
         .from('blocks')
         .update({
+          ...(fields.bucketId !== undefined && { bucket_id: fields.bucketId }),
           ...(fields.cat !== undefined && { cat: fields.cat }),
           ...(fields.title !== undefined && { title: fields.title }),
           ...(fields.detail !== undefined && { detail: fields.detail }),
@@ -700,6 +706,9 @@ export function usePlannerActions(userId: string): PlannerActions {
             dow: b.dow,
             on_date: dateIso,
             position: b.position,
+            // Carry the source Template block's Bucket reference into its fork
+            // copy, so a forked block keeps resolving its bucket color (#16).
+            bucket_id: b.bucketId,
             cat: b.cat,
             title: b.title,
             detail: b.detail,
@@ -836,6 +845,9 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async deleteBucket(id: string) {
+      // The blocks.bucket_id FK is ON DELETE SET NULL: the DB set-nulls every
+      // block placed from this bucket, so they revert to the fallback palette.
+      // The refetch below pulls those set-null blocks back into the cache.
       const { error } = await supabase.from('buckets').delete().eq('id', id)
       if (error) throw error
       await invalidate()

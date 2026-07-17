@@ -33,6 +33,10 @@ export interface Block {
   id: string
   dow: number
   position: number
+  // The Bucket this block was placed from (ADR-0003). Null = Unassigned. Color
+  // resolves live through this reference (see `blockStyle`); `cat` below is the
+  // stamped derived plumbing kept in lockstep, never authoritative.
+  bucketId: string | null
   cat: Cat
   title: string
   detail: string
@@ -245,16 +249,60 @@ export interface CatStyle {
   color: string // '' = default palette color for the cat
 }
 
-/** Per-category custom colors derived from the user's buckets. */
+/** Per-category custom colors derived from the user's buckets. Legacy,
+ *  first-bucket-wins, still used to tint cat-keyed things that don't (yet)
+ *  carry a Bucket reference — Log Entries (#18), Habits (#19). Blocks resolve
+ *  per-reference through `blockStyle`, which kills first-bucket-wins. */
 export function catStyles(buckets: { cat: Cat; color: string }[]): Partial<Record<Cat, CatStyle>> {
   const map: Partial<Record<Cat, CatStyle>> = {}
   for (const bk of buckets) if (!map[bk.cat]) map[bk.cat] = { color: bk.color }
   return map
 }
 
-/** Inline style overriding the stripe color when the bucket has a custom one. */
+/** Inline style overriding the stripe color when a custom/resolved one exists. */
 export function stripeVar(style?: CatStyle): Record<string, string> | undefined {
   return style?.color ? { ['--stripe']: style.color } : undefined
+}
+
+/** The default stripe color per cat as a CSS palette var (mirrors index.css's
+ *  `.s-*` rules). The `open` slot is Unassigned gray. */
+export const CAT_STRIPE: Record<Cat, string> = {
+  work: 'var(--b-work)',
+  devops: 'var(--b-devops)',
+  thesis: 'var(--b-thesis)',
+  math: 'var(--b-math)',
+  chin: 'var(--b-chin)',
+  exercise: 'var(--b-exer)',
+  wqu: 'var(--b-wqu)',
+  life: 'var(--b-life)',
+  open: 'var(--b-open)',
+}
+
+/** The minimal Bucket shape the color resolver reads. */
+export interface BucketColor {
+  id: string
+  cat: Cat
+  color: string // '' = no custom color; fall back to the cat palette
+}
+
+/**
+ * A Block's stripe color, resolved LIVE through its Bucket reference:
+ *   1. the referenced bucket's custom color, else
+ *   2. that bucket's cat palette (bucket exists, no custom color), else
+ *   3. the block's own stamped cat palette — a null/deleted `bucketId` (the
+ *      set-null revert keeps the block's derived `cat`), which for the
+ *      Unassigned `open` cat resolves to gray.
+ *
+ * Pure: plain data in, a CatStyle out. Because it reads the live bucket list,
+ * recoloring a bucket (or deleting it — bucket_id set-null) instantly restyles
+ * every block placed from it, and two buckets sharing a legacy `cat` hold two
+ * different colors without interfering.
+ */
+export function blockStyle(block: { bucketId: string | null; cat: Cat }, buckets: BucketColor[]): CatStyle {
+  const bucket = block.bucketId ? buckets.find((bk) => bk.id === block.bucketId) : undefined
+  if (bucket?.color) return { color: bucket.color }
+  const cat = bucket?.cat ?? block.cat
+  return { color: CAT_STRIPE[cat] ?? CAT_STRIPE.open }
 }
 
 /** ' sh' class suffix for shallow (non-deep) work — rendered muted. */
@@ -418,6 +466,9 @@ export interface PlanItem {
   key: string // stable render key, unique within the day
   title: string
   detail: string
+  // The source Block's Bucket reference (null for entry-backed items, which
+  // don't carry one until #18) — blocks resolve their color live through it.
+  bucketId: string | null
   cat: Cat
   deep: boolean
   durMin: number
@@ -460,6 +511,7 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
     key: `entry:${e.id}`,
     title: e.text,
     detail: '',
+    bucketId: null, // Log Entries don't carry a Bucket reference yet (#18)
     cat: e.cat,
     deep: e.deep,
     durMin: e.durMin,
@@ -496,6 +548,7 @@ export function mergeDatedOneOffs(base: PlanItem[], oneOffs: LogEntry[]): PlanIt
         key: `entry:${e.id}`,
         title: e.text,
         detail: '',
+        bucketId: null, // Log Entries don't carry a Bucket reference yet (#18)
         cat: e.cat,
         deep: e.deep,
         durMin,
@@ -605,6 +658,7 @@ export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: 
     key: `block:${b.id}`,
     title: b.title,
     detail: b.detail,
+    bucketId: b.bucketId,
     cat: b.cat,
     deep: b.deep,
     durMin: b.durMin,

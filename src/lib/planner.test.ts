@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   blockLogRowsFromEntries,
+  blockStyle,
   doneBlockMap,
   dowMon,
   dowOfIso,
@@ -24,6 +25,7 @@ import {
   weekStats,
   windowAccomplishments,
   type Block,
+  type BucketColor,
   type Habit,
   type LogEntry,
   type LogMap,
@@ -33,6 +35,7 @@ const b = (over: Partial<Block>): Block => ({
   id: 'b1',
   dow: 0,
   position: 0,
+  bucketId: null,
   cat: 'work',
   deep: false,
   title: 't',
@@ -42,6 +45,44 @@ const b = (over: Partial<Block>): Block => ({
   anchored: false,
   habitId: null,
   ...over,
+})
+
+describe('blockStyle (per-bucket color resolution)', () => {
+  // Two buckets share the legacy `work` cat but hold different colors — the
+  // whole point of resolving per-reference (kills first-bucket-wins).
+  const buckets: BucketColor[] = [
+    { id: 'work-red', cat: 'work', color: '#ff0000' },
+    { id: 'work-blue', cat: 'work', color: '#0000ff' },
+    { id: 'math-plain', cat: 'math', color: '' }, // no custom color
+  ]
+
+  it('resolves the referenced bucket custom color (tier 1)', () => {
+    expect(blockStyle({ bucketId: 'work-red', cat: 'work' }, buckets).color).toBe('#ff0000')
+  })
+
+  it('two buckets sharing a cat keep their own colors (no first-bucket-wins)', () => {
+    expect(blockStyle({ bucketId: 'work-red', cat: 'work' }, buckets).color).toBe('#ff0000')
+    expect(blockStyle({ bucketId: 'work-blue', cat: 'work' }, buckets).color).toBe('#0000ff')
+  })
+
+  it('falls back to the cat palette when the bucket has no custom color (tier 2)', () => {
+    expect(blockStyle({ bucketId: 'math-plain', cat: 'math' }, buckets).color).toBe('var(--b-math)')
+  })
+
+  it("a set-null (deleted) bucket reverts to the block's stamped cat palette", () => {
+    // Deleting a bucket set-nulls bucket_id but keeps the derived `cat`.
+    expect(blockStyle({ bucketId: null, cat: 'math' }, buckets).color).toBe('var(--b-math)')
+    // An id that no longer resolves behaves the same (uses the stamped cat).
+    expect(blockStyle({ bucketId: 'deleted', cat: 'chin' }, buckets).color).toBe('var(--b-chin)')
+  })
+
+  it('an unassigned block (null bucket, open cat) is gray (tier 3)', () => {
+    expect(blockStyle({ bucketId: null, cat: 'open' }, buckets).color).toBe('var(--b-open)')
+  })
+
+  it('the exercise cat maps to its aliased palette var', () => {
+    expect(blockStyle({ bucketId: null, cat: 'exercise' }, buckets).color).toBe('var(--b-exer)')
+  })
 })
 
 describe('time formatting', () => {

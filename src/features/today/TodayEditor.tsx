@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { catStyles, onTimelineEntries, resolve, stripeVar } from '../../lib/planner'
+import { blockStyle, catStyles, onTimelineEntries, resolve, stripeVar } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
 import { TodayEntryModal } from './TodayEntryModal'
@@ -103,7 +103,7 @@ export function TodayEditor({
           {data.buckets.map((bk) => (
             <div key={bk.id} className="bucket shrink-0">
               <div className="bucket-head">
-                <span className={`hname s-${bk.cat}`} style={stripeVar(styles[bk.cat])}>
+                <span className={`hname s-${bk.cat}`} style={stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets))}>
                   <span className="dot" />
                   {bk.name}
                 </span>
@@ -113,7 +113,7 @@ export function TodayEditor({
                   <button
                     key={tk.id}
                     className={`chip s-${bk.cat}`}
-                    style={stripeVar(styles[bk.cat])}
+                    style={stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets))}
                     draggable
                     onDragStart={(e) => {
                       e.dataTransfer.setData('text/plain', bk.id + '|' + tk.id)

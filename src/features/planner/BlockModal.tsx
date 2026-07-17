@@ -28,8 +28,13 @@ export function BlockModal({
   const index = blocks.findIndex((b) => b.id === editing.blockId)
   const block = blocks[index]
 
+  // Prefer the block's own Bucket reference; fall back to the first bucket with
+  // its stamped cat (legacy blocks with no reference), then the first bucket.
   const initialBucket = useMemo(
-    () => data.buckets.find((bk) => bk.cat === block?.cat) ?? data.buckets[0],
+    () =>
+      data.buckets.find((bk) => bk.id === block?.bucketId) ??
+      data.buckets.find((bk) => bk.cat === block?.cat) ??
+      data.buckets[0],
     [data.buckets, block],
   )
   const [bucketId, setBucketId] = useState(initialBucket?.id ?? '')
@@ -49,6 +54,9 @@ export function BlockModal({
 
   async function save() {
     await actions.updateBlock(block.id, {
+      // The Bucket is authoritative; `cat` is stamped from it as derived
+      // plumbing (ADR-0003). Null bucket → Unassigned.
+      bucketId: bucket?.id ?? null,
       cat: (bucket?.cat ?? block.cat) as Cat,
       title: title.trim() || '(untitled)',
       detail: detail.trim(),
