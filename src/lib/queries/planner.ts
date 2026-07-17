@@ -190,6 +190,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       id: b.id,
       dow: b.dow,
       position: b.position,
+      bucketId: b.bucket_id ?? null,
       cat: b.cat as Cat,
       title: b.title,
       detail: b.detail,
@@ -300,9 +301,13 @@ export interface PlannerActions {
    *  and the on-open catch-up. Returns the number of newly-frozen entries. */
   materializeDay(dateIso: string): Promise<number>
   addBlock(dow: number, position: number): Promise<string>
+  /** Placing/creating records the source Bucket in `bucketId`; the block editor
+   *  writes `bucketId` and stamps `cat` from the chosen bucket (ADR-0003). */
   updateBlock(
     id: string,
-    fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>,
+    fields: Partial<
+      Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>
+    >,
   ): Promise<void>
   deleteBlock(id: string): Promise<void>
   swapBlocks(a: Block, b: Block): Promise<void>
@@ -537,7 +542,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       return data.id
     },
 
-    async updateBlock(id: string, fields: Partial<Pick<Block, 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>) {
+    async updateBlock(id: string, fields: Partial<Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId'>>) {
       // Optimistic: rapid ± duration taps must see each other's result.
       patch((data) => ({
         ...data,
@@ -546,6 +551,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       const { error } = await supabase
         .from('blocks')
         .update({
+          ...(fields.bucketId !== undefined && { bucket_id: fields.bucketId }),
           ...(fields.cat !== undefined && { cat: fields.cat }),
           ...(fields.title !== undefined && { title: fields.title }),
           ...(fields.detail !== undefined && { detail: fields.detail }),
@@ -685,6 +691,9 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async deleteBucket(id: string) {
+      // The blocks.bucket_id FK is ON DELETE SET NULL: the DB set-nulls every
+      // block placed from this bucket, so they revert to the fallback palette.
+      // The refetch below pulls those set-null blocks back into the cache.
       const { error } = await supabase.from('buckets').delete().eq('id', id)
       if (error) throw error
       await invalidate()
@@ -899,7 +908,7 @@ export function usePlannerActions(userId: string): PlannerActions {
         ...d,
         blocksByDow: d.blocksByDow.map((bs, i) =>
           i === dow
-            ? [...bs, { id, dow, position, cat, title: e.text, detail: '', startMin: 720, durMin: 60, anchored: false, deep: false, habitId: null }]
+            ? [...bs, { id, dow, position, bucketId: null, cat, title: e.text, detail: '', startMin: 720, durMin: 60, anchored: false, deep: false, habitId: null }]
             : bs,
         ),
         logEntries: d.logEntries.map((x) => (x.id === entryId ? { ...x, blockId: id } : x)),

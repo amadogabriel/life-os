@@ -1,8 +1,12 @@
 import { useRef, useState, type DragEvent, type PointerEvent } from 'react'
-import { depthClass, fmt, fmtDur, resolve, stripeVar, type Cat, type CatStyle } from '../lib/planner'
+import { blockStyle, depthClass, fmt, fmtDur, resolve, stripeVar, type BucketColor, type Cat, type CatStyle } from '../lib/planner'
 
 export interface TimelineItem {
   id: string
+  // When rendering Blocks, `bucketId` drives live per-bucket color resolution
+  // (with `buckets` below). Entry-backed timelines omit it and fall back to
+  // the cat-keyed `styles`.
+  bucketId?: string | null
   cat: string
   title: string
   startMin: number
@@ -36,6 +40,7 @@ export function TimelineEditor({
   onDropExternal,
   emptyHint = 'Tap a task chip (or drag it here) to add.',
   styles,
+  buckets,
 }: {
   items: TimelineItem[]
   startAt?: number
@@ -47,8 +52,16 @@ export function TimelineEditor({
   onTitleClick?: (id: string) => void
   onDropExternal?: (payload: string, insertIdx: number) => void
   emptyHint?: string
+  /** Cat-keyed styles for entry-backed timelines (no Bucket reference). */
   styles?: Partial<Record<Cat, CatStyle>>
+  /** When given, items resolve color LIVE per-block through their `bucketId`
+   *  (Blocks) instead of the cat-keyed `styles` — kills first-bucket-wins. */
+  buckets?: BucketColor[]
 }) {
+  const itemStyle = (it: TimelineItem) =>
+    buckets
+      ? stripeVar(blockStyle({ bucketId: it.bucketId ?? null, cat: it.cat as Cat }, buckets))
+      : stripeVar(styles?.[it.cat as Cat])
   const [dragId, setDragId] = useState<string | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
   const [resizing, setResizing] = useState<{
@@ -226,7 +239,7 @@ export function TimelineEditor({
                 (dragId === it.id ? ' dragging' : '') +
                 (hpx <= 40 ? ' compact' : '')
               }
-              style={{ ...stripeVar(styles?.[it.cat as Cat]), top: yOf(start), height: hpx }}
+              style={{ ...itemStyle(it), top: yOf(start), height: hpx }}
             >
               <div
                 className="dh"

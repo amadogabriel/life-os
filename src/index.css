@@ -19,7 +19,7 @@
   --b-exer: #2f7d4f;
   --b-wqu: #6a767d;
   --b-life: #9aa4a6;
-  --b-open: #0f5c5b;
+  --b-open: #97a1a3; /* Unassigned — gray (ADR-0003) */
   --danger: #b3402f;
   --ok: #2f7d4f;
   --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
@@ -44,7 +44,7 @@
     --b-exer: #6cc48a;
     --b-wqu: #8a969d;
     --b-life: #6f797d;
-    --b-open: #4fb3ac;
+    --b-open: #7c878d; /* Unassigned — gray (ADR-0003) */
     --danger: #e0836f;
     --ok: #6cc48a;
   }

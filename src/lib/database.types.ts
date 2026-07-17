@@ -55,6 +55,7 @@ export type Database = {
       blocks: {
         Row: {
           anchored: boolean
+          bucket_id: string | null
           cat: string
           deep: boolean
           detail: string
@@ -70,6 +71,7 @@ export type Database = {
         }
         Insert: {
           anchored?: boolean
+          bucket_id?: string | null
           cat: string
           deep?: boolean
           detail?: string
@@ -85,6 +87,7 @@ export type Database = {
         }
         Update: {
           anchored?: boolean
+          bucket_id?: string | null
           cat?: string
           deep?: boolean
           detail?: string
@@ -99,6 +102,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "blocks_bucket_id_fkey"
+            columns: ["bucket_id"]
+            isOneToOne: false
+            referencedRelation: "buckets"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "blocks_habit_id_fkey"
             columns: ["habit_id"]

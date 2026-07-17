@@ -21,6 +21,17 @@ const nid = () => `demo-${Date.now().toString(36)}-${++uid}`
 
 function buildDemoData(): PlannerData {
   const days = defaultDays()
+  // Buckets first, so blocks can reference their cat's bucket (mirrors the
+  // migration's cat→bucket backfill — color then resolves live through it).
+  const buckets = defaultBuckets.map((bk, position) => ({
+    id: nid(),
+    name: bk.name,
+    cat: bk.cat,
+    position,
+    color: '',
+    tasks: bk.tasks.map((name, i) => ({ id: nid(), name, position: i, deep: isDeepDefault(bk.cat, name) })),
+  }))
+  const bucketByCat = new Map(buckets.map((bk) => [bk.cat, bk.id]))
   return {
     days: days.map((d, dow) => ({ dow, name: d.name, loc: d.loc })),
     blocksByDow: days.map((d, dow) =>
@@ -28,6 +39,7 @@ function buildDemoData(): PlannerData {
         id: nid(),
         dow,
         position,
+        bucketId: bucketByCat.get(b.cat) ?? null,
         cat: b.cat,
         title: b.title,
         detail: b.detail,
@@ -45,14 +57,7 @@ function buildDemoData(): PlannerData {
     sprints: [],
     habits: defaultHabits.map((h, position) => ({ id: nid(), position, ...h })),
     habitLogs: {},
-    buckets: defaultBuckets.map((bk, position) => ({
-      id: nid(),
-      name: bk.name,
-      cat: bk.cat,
-      position,
-      color: '',
-      tasks: bk.tasks.map((name, i) => ({ id: nid(), name, position: i, deep: isDeepDefault(bk.cat, name) })),
-    })),
+    buckets,
     designItems: defaultDesignItems.map((it, position) => ({ id: nid(), position, ...it })),
     todos: [],
     dumps: [],
@@ -78,6 +83,9 @@ function load(): PlannerData {
     if (raw) {
       // hydrate fields added after the store was first written
       const d = JSON.parse(raw) as PlannerData
+      // Link blocks written before bucket_id existed to their cat's bucket
+      // (mirrors the migration backfill), so recoloring restyles them too.
+      const bucketByCat = new Map((d.buckets ?? []).map((bk) => [bk.cat, bk.id]))
       return finalize({
         ...d,
         todos: d.todos ?? [],
@@ -91,7 +99,12 @@ function load(): PlannerData {
           tasks: bk.tasks.map((t) => ({ ...t, deep: t.deep ?? isDeepDefault(bk.cat, t.name) })),
         })),
         blocksByDow: (d.blocksByDow ?? []).map((bs) =>
-          bs.map((b) => ({ ...b, deep: b.deep ?? isDeepDefault(b.cat, b.title), habitId: b.habitId ?? null })),
+          bs.map((b) => ({
+            ...b,
+            bucketId: b.bucketId ?? bucketByCat.get(b.cat) ?? null,
+            deep: b.deep ?? isDeepDefault(b.cat, b.title),
+            habitId: b.habitId ?? null,
+          })),
         ),
       })
     }
@@ -213,7 +226,7 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) =>
         mapDow(d, dow, (blocks) => [
           ...blocks,
-          { id, dow, position, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null },
+          { id, dow, position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null },
         ]),
       )
       return id
@@ -280,7 +293,16 @@ export function useDemoActions(): PlannerActions {
               { id: nid(), name: bucket.name, cat: bucket.cat, position, color: bucket.color, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) },
             ],
       })),
-    deleteBucket: (id) => mutate((d) => ({ ...d, buckets: d.buckets.filter((bk) => bk.id !== id) })),
+    deleteBucket: (id) =>
+      mutate((d) => ({
+        ...d,
+        buckets: d.buckets.filter((bk) => bk.id !== id),
+        // Mirror the DB's ON DELETE SET NULL: blocks placed from this bucket
+        // lose the reference and revert to the fallback palette.
+        blocksByDow: d.blocksByDow.map((bs) =>
+          bs.map((b) => (b.bucketId === id ? { ...b, bucketId: null } : b)),
+        ),
+      })),
 
     addTodo: (text) =>
       mutate((d) => ({
@@ -422,6 +444,7 @@ export function useDemoActions(): PlannerActions {
           id,
           dow,
           position: d.blocksByDow[dow].length,
+          bucketId: null,
           cat: e.cat === 'open' ? 'work' : e.cat,
           title: e.text,
           detail: '',
@@ -478,6 +501,7 @@ export function useDemoActions(): PlannerActions {
             id: nid(),
             dow,
             position,
+            bucketId: null,
             cat: it.cat,
             title: it.name,
             detail: '',
