@@ -1,8 +1,21 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ViewProps } from '../../App'
-import { catStyles, depthClass, dowMon, fmt, fmtDur, manilaDate, resolve, stripeVar, weekRange } from '../../lib/planner'
+import {
+  addDays,
+  catStyles,
+  depthClass,
+  fmt,
+  fmtDur,
+  isoDate,
+  manilaDate,
+  planForDate,
+  stripeVar,
+  weekRange,
+  type DayPlan,
+} from '../../lib/planner'
 import { BlockModal, type EditingBlock } from './BlockModal'
 import { DayEditor } from './DayEditor'
+import { TodayEditor } from '../today/TodayEditor'
 
 const PXMIN = 30 / 60 // fixed scale: 1 hour = 30px, so a 1h block = one compact row
 const HOLD_MS = 320 // touch long-press before a block starts moving
@@ -17,19 +30,31 @@ interface DragVis {
 }
 
 export function WeekView({ data, actions, today }: ViewProps) {
+  const [weekOffset, setWeekOffset] = useState(0)
   const [editing, setEditing] = useState<EditingBlock | null>(null)
   const [editingDay, setEditingDay] = useState<number | null>(null)
+  const [editingToday, setEditingToday] = useState(false)
   const [dragVis, setDragVis] = useState<DragVis | null>(null)
-  const todayDow = dowMon(today)
   const styles = catStyles(data.buckets)
 
-  const resolved = data.blocksByDow.map((blocks) => resolve(blocks))
+  const todayDate = manilaDate(today)
+  const todayIso = isoDate(todayDate)
+  const range = weekRange(todayDate, weekOffset)
+  const dates = Array.from({ length: 7 }, (_, i) => addDays(range.start, i))
+  // The single seam: each column renders whatever the resolver says the date's
+  // plan is — frozen past, live today, or Template projection (forks: slice #14).
+  const dayPlans: DayPlan[] = dates.map((d) =>
+    planForDate({ blocksByDow: data.blocksByDow, logEntries: data.logEntries }, isoDate(d), todayIso),
+  )
+  // Column index === dow (Mon = 0): the visible week is always Mon–Sun.
+  const editableCol = (di: number) => dayPlans[di].source === 'projection'
+
   let axisStart: number | null = null
   let axisEnd: number | null = null
-  for (const res of resolved) {
-    if (!res.length) continue
-    const s = res[0].start
-    const e = res[res.length - 1].start + res[res.length - 1].block.durMin
+  for (const plan of dayPlans) {
+    if (!plan.items.length) continue
+    const s = plan.items[0].start
+    const e = plan.items[plan.items.length - 1].start + plan.items[plan.items.length - 1].durMin
     if (axisStart === null || s < axisStart) axisStart = s
     if (axisEnd === null || e > axisEnd) axisEnd = e
   }
@@ -45,6 +70,8 @@ export function WeekView({ data, actions, today }: ViewProps) {
   for (let mm = Math.ceil(axisStart / 120) * 120; mm <= axisEnd; mm += 120) hourLabels.push(mm)
 
   // ----- drag a block across the grid (pointer-based, touch-friendly) -----
+  // Dragging exists only on projection columns: it edits the weekday Template.
+  // Past columns are read-only and today's plan is edited via the Today editor.
 
   const colRefs = useRef<(HTMLDivElement | null)[]>([])
   // Drag state lives in a ref (always current at pointerup); dragVis mirrors it for rendering.
@@ -67,12 +94,12 @@ export function WeekView({ data, actions, today }: ViewProps) {
     const rect = press.current?.rects[dow]
     if (!rect) return data.blocksByDow[dow].length
     const y = clientY - rect.top
-    const res = resolved[dow]
-    for (let i = 0; i < res.length; i++) {
-      const mid = (res[i].start + res[i].block.durMin / 2 - axisStart!) * PXMIN
+    const items = dayPlans[dow].items
+    for (let i = 0; i < items.length; i++) {
+      const mid = (items[i].start + items[i].durMin / 2 - axisStart!) * PXMIN
       if (y < mid) return i
     }
-    return res.length
+    return items.length
   }
 
   /** Snapped (30-min) time of the dragged block's top edge inside a day column. */
@@ -89,7 +116,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
     p.active = true
     p.rects = colRefs.current.map((el) => el?.getBoundingClientRect() ?? null)
     const homeRect = p.rects[p.dow]
-    const startNow = resolved[p.dow].find((r) => r.block.id === p.id)?.start
+    const startNow = dayPlans[p.dow].items.find((it) => it.blockId === p.id)?.start
     if (homeRect && startNow !== undefined)
       p.grabDy = p.startY - (homeRect.top + (startNow - axisStart!) * PXMIN)
     // stop the page from scrolling while a block is in hand (touch)
@@ -102,13 +129,14 @@ export function WeekView({ data, actions, today }: ViewProps) {
     setDragVis({ id: p.id, fromDow: p.dow, dx: 0, dy: 0, target: p.target })
   }
 
+  /** Nearest droppable (projection) column — never a past or today column. */
   function dayAt(clientX: number): number {
     const rects = press.current?.rects ?? []
-    let best = 0
+    let best = press.current?.dow ?? 0
     let bestDist = Infinity
     for (let d = 0; d < rects.length; d++) {
       const r = rects[d]
-      if (!r) continue
+      if (!r || !editableCol(d)) continue
       if (clientX >= r.left && clientX <= r.right) return d
       const dist = clientX < r.left ? r.left - clientX : clientX - r.right
       if (dist < bestDist) {
@@ -190,7 +218,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
       if (anchored) {
         // Vertical drag of a pinned block = move the pin to the drop time,
         // then keep positions sorted by the resulting times.
-        const starts = new Map(resolved[fromDow].map((r) => [r.block.id, r.start]))
+        const starts = new Map(dayPlans[fromDow].items.map((it) => [it.blockId, it.start]))
         starts.set(id, t.min)
         const ids = [...data.blocksByDow[fromDow]]
           .sort((a, b) => starts.get(a.id)! - starts.get(b.id)! || a.position - b.position)
@@ -215,9 +243,34 @@ export function WeekView({ data, actions, today }: ViewProps) {
 
   return (
     <div>
-      <div className="view-head mb-[18px]">
-        <h2>Planner</h2>
-        <p>{weekRange(manilaDate(today)).label}</p>
+      <div className="view-head mb-[18px] flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div>
+          <h2>Planner</h2>
+          <p>{range.label}</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            className="btn ghost min-h-[42px] min-w-[46px] text-[17px]"
+            aria-label="Previous week"
+            title="Previous week"
+            onClick={() => setWeekOffset((o) => o - 1)}
+          >
+            ‹
+          </button>
+          {weekOffset !== 0 && (
+            <button className="btn ghost min-h-[42px]" onClick={() => setWeekOffset(0)}>
+              this week
+            </button>
+          )}
+          <button
+            className="btn ghost min-h-[42px] min-w-[46px] text-[17px]"
+            aria-label="Next week"
+            title="Next week"
+            onClick={() => setWeekOffset((o) => o + 1)}
+          >
+            ›
+          </button>
+        </div>
       </div>
       <div className="mb-5 flex flex-wrap gap-x-[15px] gap-y-[7px]">
         {data.buckets.map((bk) => (
@@ -240,98 +293,134 @@ export function WeekView({ data, actions, today }: ViewProps) {
             ))}
           </div>
         </div>
-        {data.days.map((day, di) => (
-          <div key={di} className={'day' + (di === todayDow ? ' today' : '')}>
-            <div className="day-head">
-              <span className="dname">{day.name}</span>
-              <span className="flex items-center gap-1">
-                <span className="dtag">{day.loc}</span>
-                <button className="bk-edit" title="Edit day" onClick={() => setEditingDay(di)}>
-                  ✎
-                </button>
-              </span>
-            </div>
-            <div
-              className="blocks"
-              ref={(el) => {
-                colRefs.current[di] = el
-              }}
-              style={{ height: spanPx, background: gridBg }}
-            >
-              {resolved[di].map(({ block: b, start, conflict }) => {
-                const top = Math.round((start - axisStart!) * PXMIN)
-                const hpx = Math.max(8, Math.round(b.durMin * PXMIN))
-                const tip = `${fmt(start)} · ${fmtDur(b.durMin)} — ${b.title}${b.detail ? '\n' + b.detail : ''}`
-                const isDragging = dragVis?.id === b.id
-                return (
+        {dayPlans.map((plan, di) => {
+          const day = data.days[di]
+          const isToday = plan.source === 'today'
+          const isPast = plan.source === 'frozen-past'
+          const editable = editableCol(di)
+          return (
+            <div key={plan.dateIso} className={'day' + (isToday ? ' today' : '')}>
+              <div className="day-head">
+                <span className="dname">
+                  {day.name.slice(0, 3)} {dates[di].getDate()}
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="dtag">{day.loc}</span>
+                  {editable && (
+                    <button className="bk-edit" title="Edit day" onClick={() => setEditingDay(di)}>
+                      ✎
+                    </button>
+                  )}
+                  {isToday && (
+                    <button className="bk-edit" title="Edit today" onClick={() => setEditingToday(true)}>
+                      ✎
+                    </button>
+                  )}
+                </span>
+              </div>
+              <div
+                className="blocks"
+                ref={(el) => {
+                  colRefs.current[di] = el
+                }}
+                style={{ height: spanPx, background: gridBg }}
+              >
+                {plan.items.map((it) => {
+                  const top = Math.round((it.start - axisStart!) * PXMIN)
+                  const hpx = Math.max(8, Math.round(it.durMin * PXMIN))
+                  const tip = `${fmt(it.start)} · ${fmtDur(it.durMin)} — ${it.title}${it.detail ? '\n' + it.detail : ''}`
+                  const isDragging = editable && dragVis?.id === it.blockId
+                  // Past columns render the frozen plan: times/titles only — no
+                  // done/undone styling, no drag or edit affordances.
+                  const interactive = editable || isToday
+                  return (
+                    <div
+                      key={it.key}
+                      className={`block s-${it.cat}${depthClass(it.deep)}${it.cat === 'open' ? ' is-open' : ''}${it.conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}${hpx < 22 ? ' tiny' : ''}`}
+                      style={{
+                        ...stripeVar(styles[it.cat]),
+                        top,
+                        height: hpx,
+                        ...(isPast && { cursor: 'default' }),
+                        ...(isDragging && {
+                          transform: `translate(${dragVis!.dx}px, ${dragVis!.dy}px)`,
+                          zIndex: 20,
+                        }),
+                      }}
+                      tabIndex={interactive ? 0 : undefined}
+                      title={tip}
+                      onPointerDown={editable ? (e) => onBlockDown(e, di, it.blockId!) : undefined}
+                      onPointerMove={editable ? onBlockMove : undefined}
+                      onPointerUp={editable ? onBlockUp : undefined}
+                      onPointerCancel={editable ? cleanupPress : undefined}
+                      onClick={
+                        interactive
+                          ? () => {
+                              if (suppressClick.current) {
+                                suppressClick.current = false
+                                return
+                              }
+                              if (isToday) setEditingToday(true)
+                              else setEditingDay(di)
+                            }
+                          : undefined
+                      }
+                      onKeyDown={
+                        interactive
+                          ? (e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                if (isToday) setEditingToday(true)
+                                else setEditingDay(di)
+                              }
+                            }
+                          : undefined
+                      }
+                    >
+                      <span className="nm">
+                        {it.title}
+                        {it.anchored ? <span className="text-[8px]"> 📌</span> : null}
+                      </span>
+                      <span className="d">{fmtDur(it.durMin)}</span>
+                    </div>
+                  )
+                })}
+                {editable && dragVis?.target?.dow === di && (
                   <div
-                    key={b.id}
-                    className={`block s-${b.cat}${depthClass(b.deep)}${b.cat === 'open' ? ' is-open' : ''}${conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}${hpx < 22 ? ' tiny' : ''}`}
+                    className="drop-line"
                     style={{
-                      ...stripeVar(styles[b.cat]),
-                      top,
-                      height: hpx,
-                      ...(isDragging && {
-                        transform: `translate(${dragVis.dx}px, ${dragVis.dy}px)`,
-                        zIndex: 20,
-                      }),
+                      top:
+                        dragVis.fromDow === di && press.current?.anchored
+                          ? Math.round((dragVis.target.min - axisStart!) * PXMIN)
+                          : dragVis.target.idx < plan.items.length
+                            ? Math.round((plan.items[dragVis.target.idx].start - axisStart!) * PXMIN)
+                            : plan.items.length
+                              ? Math.round(
+                                  (plan.items[plan.items.length - 1].start +
+                                    plan.items[plan.items.length - 1].durMin -
+                                    axisStart!) *
+                                    PXMIN,
+                                )
+                              : 0,
                     }}
-                    tabIndex={0}
-                    title={tip}
-                    onPointerDown={(e) => onBlockDown(e, di, b.id)}
-                    onPointerMove={onBlockMove}
-                    onPointerUp={onBlockUp}
-                    onPointerCancel={cleanupPress}
-                    onClick={() => {
-                      if (suppressClick.current) {
-                        suppressClick.current = false
-                        return
-                      }
-                      setEditingDay(di)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        setEditingDay(di)
-                      }
-                    }}
-                  >
-                    <span className="nm">
-                      {b.title}
-                      {b.anchored ? <span className="text-[8px]"> 📌</span> : null}
-                    </span>
-                    <span className="d">{fmtDur(b.durMin)}</span>
-                  </div>
-                )
-              })}
-              {dragVis?.target?.dow === di && (
-                <div
-                  className="drop-line"
-                  style={{
-                    top:
-                      dragVis.fromDow === di && press.current?.anchored
-                        ? Math.round((dragVis.target.min - axisStart!) * PXMIN)
-                        : dragVis.target.idx < resolved[di].length
-                          ? Math.round((resolved[di][dragVis.target.idx].start - axisStart!) * PXMIN)
-                          : resolved[di].length
-                            ? Math.round(
-                                (resolved[di][resolved[di].length - 1].start +
-                                  resolved[di][resolved[di].length - 1].block.durMin -
-                                  axisStart!) *
-                                  PXMIN,
-                              )
-                            : 0,
-                  }}
-                />
-              )}
+                  />
+                )}
+              </div>
+              <div className="p-[6px_8px]">
+                {editable && (
+                  <button className="add-block" onClick={() => setEditingDay(di)}>
+                    ✎ Design day
+                  </button>
+                )}
+                {isToday && (
+                  <button className="add-block" onClick={() => setEditingToday(true)}>
+                    ✎ Edit today
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="p-[6px_8px]">
-              <button className="add-block" onClick={() => setEditingDay(di)}>
-                ✎ Design day
-              </button>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
       {editingDay !== null && (
         <DayEditor
@@ -344,6 +433,9 @@ export function WeekView({ data, actions, today }: ViewProps) {
       )}
       {editing && (
         <BlockModal data={data} actions={actions} editing={editing} onClose={() => setEditing(null)} />
+      )}
+      {editingToday && (
+        <TodayEditor data={data} actions={actions} todayIso={todayIso} onClose={() => setEditingToday(false)} />
       )}
     </div>
   )

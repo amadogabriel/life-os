@@ -394,6 +394,115 @@ export function resolve<T extends { startMin: number; durMin: number; anchored: 
   return out
 }
 
+// ---------- "plan for date" resolver ----------
+
+/** Where a Planner day's rendered plan comes from.
+ *  - 'frozen-past': the day's materialized Log Entries — the plan as frozen; read-only.
+ *  - 'today': the live today plan (today's on-timeline Log Entries), same lens as the Today tab.
+ *  - 'projection': the weekday Template projected onto a future date; editing it edits the Template.
+ *  - 'fork': a future date with its own Day Plan (whole-day fork) — resolution lands in slice #14. */
+export type DaySource = 'frozen-past' | 'today' | 'projection' | 'fork'
+
+/** One laid-out item in a Planner day column, normalized across sources so a
+ *  single day can mix origins (a projection day + dated one-offs, slice #13).
+ *  Exactly one of `blockId`-only / `entryId` identifies the edit target:
+ *  a projection item carries the Template `blockId` (edits go to the Template);
+ *  a frozen/today item carries the Log Entry's `entryId` (plus the source
+ *  Block's id in `blockId` when it was materialized from one). */
+export interface PlanItem {
+  key: string // stable render key, unique within the day
+  title: string
+  detail: string
+  cat: Cat
+  deep: boolean
+  durMin: number
+  start: number // resolve()-computed start, minutes past midnight
+  conflict: boolean
+  anchored: boolean
+  blockId: string | null
+  entryId: string | null
+}
+
+/** A Planner day column: what to render and how to route edits. */
+export interface DayPlan {
+  dateIso: string
+  source: DaySource
+  items: PlanItem[]
+}
+
+/** Everything `planForDate` reads. Later slices widen this, not the signature:
+ *  - slice #13 (dated one-offs): entries with a **future** `onDate` + `startMin`
+ *    already arrive via `logEntries`; the resolver will merge them into that
+ *    day's projection/fork.
+ *  - slice #14 (day forks): adds a `dayForks` field (dated whole-day Day Plans);
+ *    a fork for the date wins over the Template and tags the day 'fork'. */
+export interface PlanForDateInput {
+  /** The weekday Template, index = dow (Mon = 0), each day sorted by position. */
+  blocksByDow: Block[][]
+  /** The log-primary record (materialized past days + today's live plan). */
+  logEntries: LogEntry[]
+}
+
+const DEFAULT_ENTRY_DUR = 30 // hand-typed timeline entries carry no frozen duration
+
+function entryItems(entries: LogEntry[]): PlanItem[] {
+  const timeline = entries.map((e) => ({ ...e, startMin: e.startMin ?? 0, durMin: e.durMin ?? DEFAULT_ENTRY_DUR }))
+  return resolve(timeline).map(({ block: e, start, conflict }) => ({
+    key: `entry:${e.id}`,
+    title: e.text,
+    detail: '',
+    cat: e.cat,
+    deep: e.deep,
+    durMin: e.durMin,
+    start,
+    conflict,
+    anchored: e.anchored,
+    blockId: e.blockId,
+    entryId: e.id,
+  }))
+}
+
+/**
+ * The single seam deciding what a Planner column shows for a calendar date.
+ * Pure: planner data + ISO date (+ today's Manila-local ISO date) in,
+ * laid-out day + source tag out.
+ *
+ * - Past date → 'frozen-past': that day's materialized Log Entries through the
+ *   plan lens — every task entry with a start time, **regardless of record
+ *   state** (done/migrated/dropped are facts about the record; the plan is the
+ *   plan as frozen). Never-materialized days come back empty (blank column).
+ * - Today → 'today': the live plan, exactly `onTimelineEntries` (the Today tab's lens).
+ * - Future date → 'projection': the weekday Template laid out by `resolve()`.
+ *   TODO(slice #14): resolve a forked date from its Day Plan and tag it 'fork'.
+ *   TODO(slice #13): merge dated one-off entries into the future day.
+ */
+export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: string): DayPlan {
+  if (dateIso < todayIso) {
+    const frozen = input.logEntries
+      .filter((e) => e.onDate === dateIso && e.kind === 'task' && e.startMin != null)
+      .sort((a, b) => a.position - b.position)
+    return { dateIso, source: 'frozen-past', items: entryItems(frozen) }
+  }
+  if (dateIso === todayIso) {
+    return { dateIso, source: 'today', items: entryItems(onTimelineEntries(input.logEntries, dateIso)) }
+  }
+  const blocks = input.blocksByDow[dowMon(new Date(`${dateIso}T00:00:00`))] ?? []
+  const items = resolve(blocks).map(({ block: b, start, conflict }) => ({
+    key: `block:${b.id}`,
+    title: b.title,
+    detail: b.detail,
+    cat: b.cat,
+    deep: b.deep,
+    durMin: b.durMin,
+    start,
+    conflict,
+    anchored: b.anchored,
+    blockId: b.id,
+    entryId: null,
+  }))
+  return { dateIso, source: 'projection', items }
+}
+
 /**
  * Re-order a subset of a shared-position list (e.g. one day's Log Entries,
  * where `position` interleaves tasks/notes/events together) without

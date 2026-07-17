@@ -11,6 +11,7 @@ import {
   onTimelineEntries,
   parseTime,
   pendingMaterializationDates,
+  planForDate,
   reorderWithinSlots,
   resolve,
   streak,
@@ -350,6 +351,100 @@ describe('onTimelineEntries', () => {
     ]
     expect(onTimelineEntries(entries, '2026-07-15').map((e) => e.id)).toEqual(['b', 'c', 'a'])
   })
+})
+
+describe('planForDate', () => {
+  const todayIso = '2026-07-15' // a Wednesday
+  const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
+  // Thursday Template: an anchored deep block, then a chained shallow one
+  blocksByDow[3] = [
+    b({ id: 'anchor', dow: 3, position: 0, title: 'Deep math', cat: 'math', startMin: 540, durMin: 90, anchored: true, deep: true }),
+    b({ id: 'chain', dow: 3, position: 1, title: 'Email batch', cat: 'work', startMin: 0, durMin: 30 }),
+  ]
+  const logEntries: LogEntry[] = [
+    // Monday Jul 13 — a materialized (frozen) day
+    entry({ id: 'p1', onDate: '2026-07-13', blockId: 'blk1', text: 'Frozen deep block', cat: 'math', startMin: 540, durMin: 90, anchored: true, deep: true, state: 'done', position: 0 }),
+    entry({ id: 'p2', onDate: '2026-07-13', text: 'Hand-added timeline item', cat: 'work', startMin: 0, durMin: null, state: 'open', position: 1 }),
+    entry({ id: 'p3', onDate: '2026-07-13', text: 'Rapid-log todo', startMin: null, state: 'open', position: 2 }),
+    // Tuesday Jul 14 — frozen entries later migrated/dropped
+    entry({ id: 'q1', onDate: '2026-07-14', text: 'Migrated away', startMin: 480, durMin: 60, state: 'migrated', position: 0 }),
+    entry({ id: 'q2', onDate: '2026-07-14', text: 'Dropped', startMin: 600, durMin: 30, state: 'dropped', position: 1 }),
+    // Wednesday Jul 15 (today) — the live plan
+    entry({ id: 't1', onDate: todayIso, text: 'Live block', cat: 'work', startMin: 480, durMin: 60, state: 'open', position: 0 }),
+    entry({ id: 't2', onDate: todayIso, text: 'Dropped today', startMin: 540, durMin: 30, state: 'dropped', position: 1 }),
+    entry({ id: 't3', onDate: todayIso, text: 'Chained today', cat: 'math', startMin: 0, durMin: null, state: 'open', position: 2 }),
+  ]
+  const input = { blocksByDow, logEntries }
+
+  it('past day with entries → the frozen plan, laid out by re-flow, entry-backed', () => {
+    const day = planForDate(input, '2026-07-13', todayIso)
+    expect(day.source).toBe('frozen-past')
+    expect(day.dateIso).toBe('2026-07-13')
+    // rapid-log todos (no startMin) are not part of the frozen timeline
+    expect(day.items.map((i) => i.entryId)).toEqual(['p1', 'p2'])
+    // anchored entry holds its pin; the next chains off its end (default 30m dur)
+    expect(day.items.map((i) => i.start)).toEqual([540, 630])
+    expect(day.items[0].title).toBe('Frozen deep block')
+    expect(day.items[0].durMin).toBe(90)
+    expect(day.items[0].blockId).toBe('blk1')
+    expect(day.items[1].durMin).toBe(30) // hand-typed, no frozen duration
+    expect(day.items.every((i) => i.entryId !== null)).toBe(true)
+  })
+
+  it('past day ignores record state — migrated/dropped entries still show as planned', () => {
+    const day = planForDate(input, '2026-07-14', todayIso)
+    expect(day.source).toBe('frozen-past')
+    expect(day.items.map((i) => i.entryId)).toEqual(['q1', 'q2'])
+  })
+
+  it('past day never materialized → frozen-past with no items (blank)', () => {
+    const day = planForDate(input, '2026-07-12', todayIso)
+    expect(day.source).toBe('frozen-past')
+    expect(day.items).toEqual([])
+  })
+
+  it("today → the live today plan, exactly the Today tab's on-timeline entries", () => {
+    const day = planForDate(input, todayIso, todayIso)
+    expect(day.source).toBe('today')
+    // same lens as onTimelineEntries: dropped/migrated excluded
+    expect(day.items.map((i) => i.entryId)).toEqual(['t1', 't3'])
+    expect(day.items.map((i) => i.start)).toEqual([480, 540]) // chained off the first
+    // today never renders the weekday Template, even though Wednesday has none here
+    expect(day.items.every((i) => i.entryId !== null)).toBe(true)
+  })
+
+  it('future day → the weekday Template projected onto the date, laid out by re-flow', () => {
+    const day = planForDate(input, '2026-07-16', todayIso) // Thursday
+    expect(day.source).toBe('projection')
+    expect(day.items.map((i) => i.blockId)).toEqual(['anchor', 'chain'])
+    expect(day.items.map((i) => i.entryId)).toEqual([null, null])
+    expect(day.items.map((i) => i.start)).toEqual([540, 630])
+    expect(day.items[0]).toMatchObject({ title: 'Deep math', cat: 'math', deep: true, durMin: 90, anchored: true })
+  })
+
+  it('future day with an empty Template projects nothing', () => {
+    const day = planForDate(input, '2026-07-17', todayIso) // Friday — no Template blocks
+    expect(day.source).toBe('projection')
+    expect(day.items).toEqual([])
+  })
+
+  it('projection re-flow flags an overrun anchor as a conflict', () => {
+    const bd: Block[][] = Array.from({ length: 7 }, () => [])
+    bd[3] = [
+      b({ id: 'a', dow: 3, position: 0, startMin: 540, durMin: 120, anchored: true }),
+      b({ id: 'c', dow: 3, position: 1, startMin: 600, durMin: 30, anchored: true }), // pinned before a ends
+    ]
+    const day = planForDate({ blocksByDow: bd, logEntries: [] }, '2026-07-16', todayIso)
+    expect(day.items[1].start).toBe(660)
+    expect(day.items[1].conflict).toBe(true)
+  })
+
+  // Slice #14 (day forks): a future date with a Day Plan fork resolves from the
+  // fork's own blocks and is tagged 'fork'; the Template no longer speaks for it.
+  it.todo("future day with a Day Plan fork → source 'fork', laid out from the fork (slice #14)")
+  // Slice #13 (dated one-offs): entries with a future onDate + startMin ride on
+  // top of that day's projection without forking it.
+  it.todo('future day merges dated one-off entries into the projection (slice #13)')
 })
 
 describe('reorderWithinSlots', () => {
