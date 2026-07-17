@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   blockLogRowsFromEntries,
   blockStyle,
+  depthClass,
   doneBlockMap,
   dowMon,
   dowOfIso,
@@ -82,6 +83,18 @@ describe('blockStyle (per-bucket color resolution)', () => {
 
   it('the exercise cat maps to its aliased palette var', () => {
     expect(blockStyle({ bucketId: null, cat: 'exercise' }, buckets).color).toBe('var(--b-exer)')
+  })
+})
+
+describe('depthClass', () => {
+  // Contract (#22): deep is the un-suffixed base (boosted look); shallow gets the
+  // ' sh' suffix that mutes it. Every depth-aware surface (blocks, timeline cards,
+  // today/log rows, palette chips) keys its rendering off this single hook.
+  it('returns no suffix for deep work (renders boosted)', () => {
+    expect(depthClass(true)).toBe('')
+  })
+  it('returns the " sh" suffix for shallow work (renders muted)', () => {
+    expect(depthClass(false)).toBe(' sh')
   })
 })
 
