@@ -50,6 +50,7 @@ export interface Bucket {
   cat: Cat
   position: number
   color: string // '' = default palette color for the cat
+  counted: boolean // whether this bucket's hours hit the scoreboard (ADR-0003 #17)
   tasks: BucketTask[]
 }
 
@@ -143,7 +144,9 @@ async function seedDefaults(userId: string): Promise<void> {
   for (const [position, bk] of defaultBuckets.entries()) {
     const { data: bucket, error } = await supabase
       .from('buckets')
-      .insert({ user_id: userId, name: bk.name, cat: bk.cat, position })
+      // Life-type buckets are recovery housekeeping — uncounted (ADR-0003 #17),
+      // so they leave the scoreboard and never materialize (mirrors 0016).
+      .insert({ user_id: userId, name: bk.name, cat: bk.cat, position, counted: bk.cat !== 'life' })
       .select('id')
       .single()
     if (error) throw error
@@ -240,6 +243,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     state: e.state as LogState,
     signifier: e.signifier as LogSignifier,
     text: e.text,
+    bucketId: e.bucket_id ?? null,
     cat: e.cat as Cat,
     blockId: e.block_id,
     migratedTo: e.migrated_to,
@@ -291,6 +295,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
       cat: bk.cat as Cat,
       position: bk.position,
       color: bk.color ?? '',
+      counted: bk.counted ?? true,
       tasks: taskByBucket.get(bk.id) ?? [],
     })),
     designItems: designItems.data!.map((it) => ({
@@ -360,7 +365,7 @@ export interface PlannerActions {
   saveHabit(habit: { id?: string; name: string; cat: Cat; days: number[] }, position: number): Promise<void>
   deleteHabit(id: string): Promise<void>
   saveBucket(
-    bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
+    bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string; counted: boolean },
     position: number,
   ): Promise<void>
   deleteBucket(id: string): Promise<void>
@@ -374,6 +379,9 @@ export interface PlannerActions {
     onDate: string
     kind: LogKind
     text: string
+    // The Bucket the entry belongs to (rapid-log picker). `cat` is derived from
+    // it on write (ADR-0003); pass `cat` directly only when there's no bucket.
+    bucketId?: string | null
     cat?: Cat
     signifier?: LogSignifier
     projectId?: string | null
@@ -391,6 +399,7 @@ export interface PlannerActions {
         | 'kind'
         | 'state'
         | 'signifier'
+        | 'bucketId'
         | 'cat'
         | 'onDate'
         | 'position'
@@ -490,6 +499,7 @@ export function usePlannerActions(userId: string): PlannerActions {
                 onDate: dateIso,
                 state: 'done',
                 text: blk?.title ?? '',
+                bucketId: blk?.bucketId ?? null,
                 cat: blk?.cat ?? 'open',
                 blockId,
                 position,
@@ -523,6 +533,7 @@ export function usePlannerActions(userId: string): PlannerActions {
             kind: 'task',
             state: 'done',
             text: blk?.title ?? '',
+            bucket_id: blk?.bucketId ?? null,
             cat: blk?.cat ?? 'open',
             block_id: blockId,
             dur_min: blk?.durMin ?? null,
@@ -800,14 +811,14 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async saveBucket(
-      bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string },
+      bucket: { id?: string; name: string; cat: Cat; tasks: { name: string; deep: boolean }[]; color: string; counted: boolean },
       position: number,
     ) {
       let bucketId = bucket.id
       if (bucketId) {
         const { error } = await supabase
           .from('buckets')
-          .update({ name: bucket.name, cat: bucket.cat, color: bucket.color })
+          .update({ name: bucket.name, cat: bucket.cat, color: bucket.color, counted: bucket.counted })
           .eq('id', bucketId)
         if (error) throw error
         const { error: delErr } = await supabase.from('bucket_tasks').delete().eq('bucket_id', bucketId)
@@ -821,6 +832,7 @@ export function usePlannerActions(userId: string): PlannerActions {
             cat: bucket.cat,
             position,
             color: bucket.color,
+            counted: bucket.counted,
           })
           .select('id')
           .single()
@@ -884,11 +896,14 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async addLogEntry(entry) {
+      const cache = qc.getQueryData<PlannerData>(plannerKey)
       // Append after the last entry already on that day.
-      const onDay = (qc.getQueryData<PlannerData>(plannerKey)?.logEntries ?? []).filter(
-        (e) => e.onDate === entry.onDate,
-      )
+      const onDay = (cache?.logEntries ?? []).filter((e) => e.onDate === entry.onDate)
       const position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
+      // Rapid-log picks a Bucket; `cat` is stamped from it (ADR-0003). A null
+      // bucket keeps the passed cat (or `open` = Unassigned).
+      const bucket = entry.bucketId ? cache?.buckets.find((bk) => bk.id === entry.bucketId) : undefined
+      const cat = bucket?.cat ?? entry.cat ?? 'open'
       const { data, error } = await supabase
         .from('log_entries')
         .insert({
@@ -896,7 +911,8 @@ export function usePlannerActions(userId: string): PlannerActions {
           on_date: entry.onDate,
           kind: entry.kind,
           text: entry.text,
-          cat: entry.cat ?? 'open',
+          bucket_id: entry.bucketId ?? null,
+          cat,
           signifier: entry.signifier ?? '',
           project_id: entry.projectId ?? null,
           sprint_id: entry.sprintId ?? null,
@@ -924,6 +940,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.kind !== undefined && { kind: fields.kind }),
           ...(fields.state !== undefined && { state: fields.state }),
           ...(fields.signifier !== undefined && { signifier: fields.signifier }),
+          ...(fields.bucketId !== undefined && { bucket_id: fields.bucketId }),
           ...(fields.cat !== undefined && { cat: fields.cat }),
           ...(fields.onDate !== undefined && { on_date: fields.onDate }),
           ...(fields.position !== undefined && { position: fields.position }),
@@ -982,6 +999,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           on_date: toDate,
           kind: src.kind,
           text: src.text,
+          bucket_id: src.bucketId,
           cat: src.cat,
           signifier: src.signifier,
           position,

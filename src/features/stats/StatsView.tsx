@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ViewProps } from '../../App'
-import { CATS, COUNTED, weekStats } from '../../lib/planner'
+import { blockStyle, stripeVar, weekStats } from '../../lib/planner'
 
 export function StatsView({ data, actions, today }: ViewProps) {
-  const stats = weekStats(data.blocksByDow, data.blockLogs, data.habits, data.habitLogs, today)
-  const rows = COUNTED.map((k) => ({ k, m: stats.minsByCat[k] ?? 0 }))
+  const stats = weekStats(data.blocksByDow, data.blockLogs, data.habits, data.habitLogs, today, data.buckets)
+  // Bucket lanes, counted only — a bucket's flag toggling off drops its lane
+  // immediately (its planned mins stop being summed in weekStats).
+  const rows = data.buckets
+    .filter((bk) => bk.counted)
+    .map((bk) => ({ bk, m: stats.minsByBucket[bk.id] ?? 0 }))
     .filter((r) => r.m > 0)
     .sort((a, b) => b.m - a.m)
   const max = rows.reduce((x, r) => Math.max(x, r.m), 1)
@@ -58,22 +62,25 @@ export function StatsView({ data, actions, today }: ViewProps) {
               </td>
             </tr>
           )}
-          {rows.map((r) => (
-            <tr key={r.k}>
-              <td>
-                <span className={`qname s-${r.k}`}>
-                  <span className="dot" />
-                  {CATS[r.k]}
-                </span>
-              </td>
-              <td className="hrs">~{(r.m / 60).toFixed(r.m % 60 ? 1 : 0)} h</td>
-              <td>
-                <div className="bar-track">
-                  <div className={`bar s-${r.k}`} style={{ width: `${Math.round((r.m / max) * 100)}%` }} />
-                </div>
-              </td>
-            </tr>
-          ))}
+          {rows.map((r) => {
+            const style = stripeVar(blockStyle({ bucketId: r.bk.id, cat: r.bk.cat }, data.buckets))
+            return (
+              <tr key={r.bk.id}>
+                <td>
+                  <span className={`qname s-${r.bk.cat}`} style={style}>
+                    <span className="dot" />
+                    {r.bk.name}
+                  </span>
+                </td>
+                <td className="hrs">~{(r.m / 60).toFixed(r.m % 60 ? 1 : 0)} h</td>
+                <td>
+                  <div className="bar-track">
+                    <div className={`bar s-${r.bk.cat}`} style={{ ...style, width: `${Math.round((r.m / max) * 100)}%` }} />
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       <div className="mt-5">

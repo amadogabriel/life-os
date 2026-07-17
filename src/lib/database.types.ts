@@ -160,6 +160,7 @@ export type Database = {
         Row: {
           cat: string
           color: string
+          counted: boolean
           deep: boolean
           id: string
           name: string
@@ -169,6 +170,7 @@ export type Database = {
         Insert: {
           cat: string
           color?: string
+          counted?: boolean
           deep?: boolean
           id?: string
           name: string
@@ -178,6 +180,7 @@ export type Database = {
         Update: {
           cat?: string
           color?: string
+          counted?: boolean
           deep?: boolean
           id?: string
           name?: string
@@ -330,6 +333,7 @@ export type Database = {
         Row: {
           anchored: boolean
           block_id: string | null
+          bucket_id: string | null
           cat: string
           created_at: string
           deep: boolean
@@ -351,6 +355,7 @@ export type Database = {
         Insert: {
           anchored?: boolean
           block_id?: string | null
+          bucket_id?: string | null
           cat?: string
           created_at?: string
           deep?: boolean
@@ -372,6 +377,7 @@ export type Database = {
         Update: {
           anchored?: boolean
           block_id?: string | null
+          bucket_id?: string | null
           cat?: string
           created_at?: string
           deep?: boolean
@@ -396,6 +402,13 @@ export type Database = {
             columns: ["block_id"]
             isOneToOne: false
             referencedRelation: "blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "log_entries_bucket_id_fkey"
+            columns: ["bucket_id"]
+            isOneToOne: false
+            referencedRelation: "buckets"
             referencedColumns: ["id"]
           },
           {

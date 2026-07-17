@@ -3,6 +3,7 @@ import type { ViewProps } from '../../App'
 import { BujoLegend } from '../../components/BujoLegend'
 import {
   addDays,
+  blockStyle,
   CATS,
   catStyles,
   fmtDur,
@@ -36,6 +37,7 @@ export function ReportView({ data, today }: ViewProps) {
   const [mode, setMode] = useState<'week' | 'month'>('week')
   const styles = catStyles(data.buckets)
   const projectById = new Map(data.projects.map((p) => [p.id, p]))
+  const bucketById = new Map(data.buckets.map((bk) => [bk.id, bk]))
 
   const allDates = [...data.blockLogRows.map((r) => r.dateIso), ...data.logEntries.map((e) => e.onDate)]
   const earliest = allDates.length ? allDates.reduce((a, b) => (a < b ? a : b)) : isoDate(today)
@@ -104,7 +106,7 @@ export function ReportView({ data, today }: ViewProps) {
 
       <div className="flex flex-col gap-4">
         {periods.map((p) => {
-          const acc = windowAccomplishments(data.logEntries, p.startIso, p.endIso)
+          const acc = windowAccomplishments(data.logEntries, p.startIso, p.endIso, data.buckets)
           let habitsDone = 0
           const activeSet = new Set<string>()
           for (const iso of Object.keys(data.habitLogs)) {
@@ -146,11 +148,14 @@ export function ReportView({ data, today }: ViewProps) {
 
               {quiet && <div className="hint">Quiet {unit} — nothing logged.</div>}
 
-              {acc.byCat.map((c) => (
-                <div key={c.cat} className="litem items-start" style={stripeVar(styles[c.cat])}>
-                  <span className={`qname s-${c.cat}`} style={{ ...stripeVar(styles[c.cat]), minWidth: 150, flex: 'none' }}>
+              {acc.byBucket.map((c) => {
+                const bk = bucketById.get(c.bucketId)
+                const laneStyle = stripeVar(blockStyle({ bucketId: c.bucketId, cat: c.cat }, data.buckets))
+                return (
+                <div key={c.bucketId} className="litem items-start" style={laneStyle}>
+                  <span className={`qname s-${c.cat}`} style={{ ...laneStyle, minWidth: 150, flex: 'none' }}>
                     <span className="dot" />
-                    {CATS[c.cat]}
+                    {bk?.name ?? CATS[c.cat]}
                   </span>
                   <span className="txt" style={{ color: 'var(--ink-soft)' }}>
                     {c.titles.map((t, j) => (
@@ -166,7 +171,8 @@ export function ReportView({ data, today }: ViewProps) {
                     {fmtDur(c.mins)}
                   </span>
                 </div>
-              ))}
+                )
+              })}
 
               {wins.length > 0 && (
                 <div className="litem items-start">

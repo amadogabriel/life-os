@@ -10,6 +10,7 @@ import {
   forkCopies,
   isoDate,
   manilaDate,
+  materializes,
   newLogEntry,
   reorderWithinSlots,
   resolve,
@@ -40,6 +41,8 @@ function buildDemoData(): PlannerData {
     cat: bk.cat,
     position,
     color: '',
+    // Life-type buckets are uncounted recovery housekeeping (ADR-0003 #17).
+    counted: bk.cat !== 'life',
     tasks: bk.tasks.map((name, i) => ({ id: nid(), name, position: i, deep: isDeepDefault(bk.cat, name) })),
   }))
   const bucketByCat = new Map(buckets.map((bk) => [bk.cat, bk.id]))
@@ -103,12 +106,20 @@ function load(): PlannerData {
         dayForks: d.dayForks ?? {},
         todos: d.todos ?? [],
         dumps: d.dumps ?? [],
-        logEntries: d.logEntries ?? [],
+        // Link entries written before bucket_id existed to their cat's bucket
+        // (mirrors the 0017 backfill), so they group into and recolor with it.
+        logEntries: (d.logEntries ?? []).map((e) => ({
+          ...e,
+          bucketId: e.bucketId ?? (e.cat !== 'open' ? (bucketByCat.get(e.cat) ?? null) : null),
+        })),
         projects: d.projects ?? [],
         sprints: d.sprints ?? [],
         buckets: (d.buckets ?? []).map((bk) => ({
           ...bk,
           color: bk.color ?? '',
+          // Buckets written before the counted flag existed: Life uncounted,
+          // everything else counted (mirrors migration 0016).
+          counted: bk.counted ?? bk.cat !== 'life',
           tasks: bk.tasks.map((t) => ({ ...t, deep: t.deep ?? isDeepDefault(bk.cat, t.name) })),
         })),
         blocksByDow: (d.blocksByDow ?? []).map((bs) =>
@@ -194,6 +205,7 @@ export function useDemoActions(): PlannerActions {
               onDate: dateIso,
               state: 'done',
               text: blk?.title ?? '',
+              bucketId: blk?.bucketId ?? null,
               cat: blk?.cat ?? 'open',
               blockId: id,
               position,
@@ -222,7 +234,9 @@ export function useDemoActions(): PlannerActions {
         const frozen = new Set(d.logEntries.filter((e) => e.onDate === dateIso && e.blockId).map((e) => e.blockId))
         // Fork wins: a forked date freezes from its Day Plan (even when
         // intentionally emptied), an unforked date from the weekday Template.
-        const blocks = d.dayForks[dateIso] ?? d.blocksByDow[dow] ?? []
+        // Uncounted buckets (Life) never materialize; Unassigned (null) does
+        // (ADR-0003 #17) — mirrors materialize_day's counted gate.
+        const blocks = (d.dayForks[dateIso] ?? d.blocksByDow[dow] ?? []).filter((b) => materializes(b, d.buckets))
         const resolved = resolve(blocks)
         let position = d.logEntries
           .filter((e) => e.onDate === dateIso)
@@ -235,6 +249,7 @@ export function useDemoActions(): PlannerActions {
               onDate: dateIso,
               state: 'open',
               text: r.block.title,
+              bucketId: r.block.bucketId,
               cat: r.block.cat,
               blockId: r.block.id,
               position: position++,
@@ -347,12 +362,12 @@ export function useDemoActions(): PlannerActions {
         buckets: bucket.id
           ? d.buckets.map((bk) =>
               bk.id === bucket.id
-                ? { ...bk, name: bucket.name, cat: bucket.cat, color: bucket.color, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) }
+                ? { ...bk, name: bucket.name, cat: bucket.cat, color: bucket.color, counted: bucket.counted, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) }
                 : bk,
             )
           : [
               ...d.buckets,
-              { id: nid(), name: bucket.name, cat: bucket.cat, position, color: bucket.color, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) },
+              { id: nid(), name: bucket.name, cat: bucket.cat, position, color: bucket.color, counted: bucket.counted, tasks: bucket.tasks.map((t, i) => ({ id: nid(), name: t.name, deep: t.deep, position: i })) },
             ],
       })),
     deleteBucket: (id) =>
@@ -386,6 +401,8 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) => {
         const onDay = d.logEntries.filter((e) => e.onDate === entry.onDate)
         const position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
+        // Rapid-log picks a Bucket; `cat` is stamped from it (ADR-0003).
+        const bucket = entry.bucketId ? d.buckets.find((bk) => bk.id === entry.bucketId) : undefined
         return {
           ...d,
           logEntries: [
@@ -397,7 +414,8 @@ export function useDemoActions(): PlannerActions {
               state: 'open',
               signifier: entry.signifier ?? '',
               text: entry.text,
-              cat: entry.cat ?? 'open',
+              bucketId: entry.bucketId ?? null,
+              cat: bucket?.cat ?? entry.cat ?? 'open',
               blockId: null,
               migratedTo: null,
               projectId: entry.projectId ?? null,
@@ -446,6 +464,7 @@ export function useDemoActions(): PlannerActions {
               state: 'open',
               signifier: src.signifier,
               text: src.text,
+              bucketId: src.bucketId,
               cat: src.cat,
               blockId: null,
               migratedTo: null,

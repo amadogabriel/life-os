@@ -4,15 +4,16 @@ import { BujoLegend } from '../../components/BujoLegend'
 import { Check } from '../../components/Check'
 import {
   addDays,
+  blockStyle,
   bullet,
-  CATS,
   catStyles,
   depthClass,
   fmtDur,
   isoDate,
+  materializes,
   SIGNIFIER_GLYPH,
   stripeVar,
-  type Cat,
+  type BlockLogRow,
   type LogEntry,
   type LogKind,
 } from '../../lib/planner'
@@ -55,6 +56,7 @@ export function LogView({ data, actions, today }: ViewProps) {
   const [offset, setOffset] = useState(0)
   const [text, setText] = useState('')
   const [kind, setKind] = useState<LogKind>('task')
+  const [bucketId, setBucketId] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
 
@@ -63,7 +65,11 @@ export function LogView({ data, actions, today }: ViewProps) {
   const selIso = isoDate(sel)
   const isToday = offset === 0
   const isFuture = offset > 0
-  const styles = catStyles(data.buckets)
+  const styles = catStyles(data.buckets) // habit chips (cat-keyed, #19's job)
+  const bucketById = new Map(data.buckets.map((bk) => [bk.id, bk]))
+  // Log Entries / frozen block rows recolor LIVE through their Bucket (#18).
+  const entryStyle = (e: { bucketId: string | null; cat: LogEntry['cat'] }) =>
+    stripeVar(blockStyle({ bucketId: e.bucketId, cat: e.cat }, data.buckets))
 
   // rapid entry targets the selected day (day mode) or today (journal mode)
   const entryDate = mode === 'journal' ? realTodayIso : selIso
@@ -71,7 +77,8 @@ export function LogView({ data, actions, today }: ViewProps) {
     const t = text.trim()
     if (!t) return
     setText('')
-    await actions.addLogEntry({ onDate: entryDate, kind, text: t })
+    // The picked Bucket rides along; `cat` is stamped from it on write (#18).
+    await actions.addLogEntry({ onDate: entryDate, kind, text: t, bucketId })
   }
 
   // migration ritual — open tasks stranded before today. Life-category
@@ -80,7 +87,7 @@ export function LogView({ data, actions, today }: ViewProps) {
   // completion % (they simply never existed as entries before this filter
   // was needed).
   const staleOpen = data.logEntries
-    .filter((e) => e.kind === 'task' && e.state === 'open' && e.cat !== 'life' && e.onDate < realTodayIso)
+    .filter((e) => e.kind === 'task' && e.state === 'open' && materializes(e, data.buckets) && e.onDate < realTodayIso)
     .sort((a, b) => a.onDate.localeCompare(b.onDate))
   async function carryAll() {
     for (const e of staleOpen) await actions.migrateLogEntry(e.id, realTodayIso, false)
@@ -104,10 +111,10 @@ export function LogView({ data, actions, today }: ViewProps) {
       </button>
     )
     return (
-      <div key={e.id} className={'litem flex-wrap' + (done ? ' done' : '')} style={stripeVar(styles[e.cat])}>
+      <div key={e.id} className={'litem flex-wrap' + (done ? ' done' : '')} style={entryStyle(e)}>
         <span
           className="bullet"
-          style={{ fontFamily: 'var(--mono)', width: 16, color: e.cat !== 'open' ? 'var(--stripe)' : 'var(--ink-faint)' }}
+          style={{ fontFamily: 'var(--mono)', width: 16, color: e.bucketId ? 'var(--stripe)' : 'var(--ink-faint)' }}
         >
           {bullet(e.kind, e.state)}
         </span>
@@ -191,6 +198,20 @@ export function LogView({ data, actions, today }: ViewProps) {
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && submit()}
       />
+      <select
+        className="qi"
+        title="Bucket — leave Unassigned to pick later"
+        value={bucketId ?? ''}
+        onChange={(e) => setBucketId(e.target.value || null)}
+        style={{ maxWidth: 130 }}
+      >
+        <option value="">Unassigned</option>
+        {data.buckets.map((bk) => (
+          <option key={bk.id} value={bk.id}>
+            {bk.name}
+          </option>
+        ))}
+      </select>
       <button className="btn ghost sm" onClick={submit}>
         ＋
       </button>
@@ -272,9 +293,9 @@ export function LogView({ data, actions, today }: ViewProps) {
         <div className="flex flex-col gap-4">
           {days.map((iso) => {
             const entries = data.logEntries
-              .filter((e) => e.onDate === iso && e.cat !== 'life')
+              .filter((e) => e.onDate === iso && materializes(e, data.buckets))
               .sort((a, b) => a.position - b.position)
-            const blocks = data.blockLogRows.filter((r) => r.dateIso === iso && r.cat !== 'life')
+            const blocks = data.blockLogRows.filter((r) => r.dateIso === iso && materializes(r, data.buckets))
             const deep = blocks.filter((r) => r.deep).length
             const habits = Object.keys(data.habitLogs[iso] ?? {}).length
             return (
@@ -320,14 +341,14 @@ export function LogView({ data, actions, today }: ViewProps) {
   // ---------- single day (focus + capture) ----------
   function dayView() {
     const entries = data.logEntries
-      .filter((e) => e.onDate === selIso && e.cat !== 'life')
+      .filter((e) => e.onDate === selIso && materializes(e, data.buckets))
       .sort((a, b) => a.position - b.position)
     const tasks = entries.filter((e) => e.kind === 'task')
     const openTasks = tasks.filter((e) => e.state === 'open').length
     const doneTasks = tasks.filter((e) => e.state === 'done').length
 
     const completedBlocks = data.blockLogRows
-      .filter((r) => r.dateIso === selIso && r.cat !== 'life')
+      .filter((r) => r.dateIso === selIso && materializes(r, data.buckets))
       .sort((a, b) => Number(b.deep) - Number(a.deep))
     const deepBlocks = completedBlocks.filter((r) => r.deep)
     const completedHabits = Object.keys(data.habitLogs[selIso] ?? {})
@@ -347,7 +368,7 @@ export function LogView({ data, actions, today }: ViewProps) {
               }
             >
               {staleOpen.map((e) => (
-                <div key={e.id} className="litem" style={stripeVar(styles[e.cat])}>
+                <div key={e.id} className="litem" style={entryStyle(e)}>
                   <span className="bullet" style={{ fontFamily: 'var(--mono)', fontSize: 10, minWidth: 52, color: 'var(--ink-faint)' }}>
                     {mdShort(e.onDate)}
                   </span>
@@ -390,7 +411,7 @@ export function LogView({ data, actions, today }: ViewProps) {
               <div
                 key={r.blockId + i}
                 className={`citem s-${r.cat}${depthClass(r.deep)} done`}
-                style={{ ...stripeVar(styles[r.cat]), gridTemplateColumns: '18px 1fr auto' }}
+                style={{ ...entryStyle(r), gridTemplateColumns: '18px 1fr auto' }}
               >
                 <span className="chk" style={{ color: 'var(--accent)' }}>
                   <Check />
@@ -425,10 +446,14 @@ export function LogView({ data, actions, today }: ViewProps) {
 
         {completedBlocks.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-3">
-            {[...new Set(completedBlocks.map((r) => r.cat))].map((cat: Cat) => (
-              <span key={cat} className={`qname s-${cat}`} style={stripeVar(styles[cat])}>
+            {[...new Map(completedBlocks.map((r) => [r.bucketId ?? `cat:${r.cat}`, r])).values()].map((r: BlockLogRow) => (
+              <span
+                key={r.bucketId ?? `cat:${r.cat}`}
+                className={`qname s-${r.cat}`}
+                style={entryStyle(r)}
+              >
                 <span className="dot" />
-                {CATS[cat]}
+                {(r.bucketId && bucketById.get(r.bucketId)?.name) || 'Unassigned'}
               </span>
             ))}
           </div>
