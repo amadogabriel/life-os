@@ -352,6 +352,8 @@ export function LogView({ data, actions, today }: ViewProps) {
     const completedHabits = Object.keys(data.habitLogs[selIso] ?? {})
       .map((id) => data.habits.find((h) => h.id === id))
       .filter((h): h is NonNullable<typeof h> => !!h)
+    // Bucket-lane dedup/group key: the row's bucket, else a synthetic cat lane.
+    const laneKey = (r: BlockLogRow) => r.bucketId ?? `cat:${r.cat}`
 
     return (
       <div>
@@ -444,9 +446,9 @@ export function LogView({ data, actions, today }: ViewProps) {
 
         {completedBlocks.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-3">
-            {[...new Map(completedBlocks.map((r) => [r.bucketId ?? `cat:${r.cat}`, r])).values()].map((r: BlockLogRow) => (
+            {[...new Map(completedBlocks.map((r) => [laneKey(r), r])).values()].map((r: BlockLogRow) => (
               <span
-                key={r.bucketId ?? `cat:${r.cat}`}
+                key={laneKey(r)}
                 className={`qname s-${r.cat}`}
                 style={entryStyle(r)}
               >

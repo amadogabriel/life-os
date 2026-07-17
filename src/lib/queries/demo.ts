@@ -29,7 +29,7 @@ import {
   defaultDesignItems,
   defaultHabits,
 } from '../defaults'
-import { isDeepDefault, plannerKey, type DesignItem, type PlannerActions, type PlannerData } from './planner'
+import { isDeepDefault, plannerKey, type BucketTask, type DesignItem, type PlannerActions, type PlannerData } from './planner'
 
 const STORE_KEY = 'life-os-demo-v1'
 
@@ -203,7 +203,7 @@ export function useDemoActions(): PlannerActions {
     blocksByDow: d.blocksByDow.map((bs) => bs.map(fn)),
     dayForks: Object.fromEntries(Object.entries(d.dayForks).map(([date, bs]) => [date, bs.map(fn)])),
   })
-  const mapAllTasks = (d: PlannerData, fn: (t: PlannerData['buckets'][number]['tasks'][number]) => PlannerData['buckets'][number]['tasks'][number]) =>
+  const mapAllTasks = (d: PlannerData, fn: (t: BucketTask) => BucketTask) =>
     d.buckets.map((bk) => ({ ...bk, tasks: bk.tasks.map(fn) }))
   const mapDow = (d: PlannerData, dow: number, fn: (blocks: Block[]) => Block[]) => ({
     ...d,

@@ -16,6 +16,7 @@ import type {
   ProjectStatus,
   Sprint,
   SprintStatus,
+  Trace,
 } from '../planner'
 import {
   blockLogRowsFromEntries,
@@ -37,16 +38,14 @@ import {
   defaultHabits,
 } from '../defaults'
 
-export interface BucketTask {
+// Traces (#20/#21) — independent, coexisting links to a Habit and/or a Project
+// (optionally narrowed to a Sprint), composed in via `extends Trace`. Null
+// everywhere = a vague task.
+export interface BucketTask extends Trace {
   id: string
   name: string
   position: number
   deep: boolean
-  // Traces (#20/#21) — independent, coexisting links to a Habit and/or a
-  // Project (optionally narrowed to a Sprint). Null everywhere = a vague task.
-  habitId: string | null
-  projectId: string | null
-  sprintId: string | null
 }
 
 export interface Bucket {

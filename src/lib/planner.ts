@@ -12,24 +12,11 @@ export type Cat =
   | 'life'
   | 'open'
 
-export const CATS: Record<Cat, string> = {
-  work: 'Work · engineering',
-  math: 'Measure theory / analysis',
-  chin: 'Chinese (Migaku/CI)',
-  exercise: 'Exercise',
-  thesis: 'UPD thesis',
-  devops: 'Work · DevOps',
-  wqu: 'WQU (maintenance)',
-  life: 'Life / recovery',
-  open: 'OPEN — assign',
-}
-
-/** Categories that count toward planned/accomplished hours. */
-export const COUNTED: Cat[] = ['work', 'math', 'chin', 'exercise', 'thesis', 'devops', 'wqu']
-
 export const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
-export interface Block {
+// The Trace fields (habitId/projectId/sprintId) are composed in via `extends Trace`
+// (defined below); a placed Block carries the task's traces, independent & coexisting.
+export interface Block extends Trace {
   id: string
   dow: number
   position: number
@@ -44,10 +31,6 @@ export interface Block {
   durMin: number
   anchored: boolean
   deep: boolean
-  // Traces carried from the placed Bucket Task (#20/#21), independent & coexisting:
-  habitId: string | null // when set, checking this block off logs the habit
-  projectId: string | null // when set, materialize stamps it on the entry -> accrues to the project
-  sprintId: string | null // optional sprint container within the project
 }
 
 export interface Day {
@@ -172,14 +155,6 @@ export interface Trace {
   habitId: string | null
   projectId: string | null
   sprintId: string | null
-}
-
-/** The trace a Bucket Task carries (name + deep + Trace) — the shape the bucket
- *  editor and the placement path read. `Bucket`/`BucketTask` proper live in the
- *  queries layer; this is the pure slice the domain logic needs. */
-export interface TracedTask extends Trace {
-  name: string
-  deep: boolean
 }
 
 /** Duration a placed chip gets by default (1h), matching the design palette. */
