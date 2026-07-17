@@ -113,7 +113,7 @@ export function TodayEditor({
               title: e.text,
               startMin: e.startMin ?? 0,
               durMin: e.durMin ?? 30,
-              anchored: past ? touchedIds.has(e.id) ? e.anchored : true : e.anchored,
+              anchored: effectiveAnchor(e),
               deep: e.deep,
             }))}
             buckets={data.buckets}

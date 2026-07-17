@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { fmt, frozenPastEntries, onTimelineEntries, parseTime, resolve } from '../../lib/planner'
+import { fmt, parseTime, resolve, viewedEntries } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 
 /** Edits one entry on a day's plan timeline — today's live plan, a dated
@@ -38,7 +38,7 @@ export function TodayEntryModal({
   onSaved?: (id: string) => void
   onClose: () => void
 }) {
-  const items = past ? frozenPastEntries(data.logEntries, dateIso).map((r) => r.block) : onTimelineEntries(data.logEntries, dateIso)
+  const items = viewedEntries(data.logEntries, dateIso, past)
   const index = items.findIndex((e) => e.id === entryId)
   const entry = items[index]
 

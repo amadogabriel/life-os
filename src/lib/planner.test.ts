@@ -707,6 +707,14 @@ describe('frozenPastEntries — the frozen-past lens with full record state (#25
     )
     expect(rows[0].block).toMatchObject({ id: 'traced', bucketId: 'bk-chin', habitId: 'hab-1' })
   })
+
+  it('divergence from frozenPastItems: applies no materializes()/counted filtering — uncounted (Life) entries render', () => {
+    const rows = frozenPastEntries(
+      [entry({ id: 'sleep', onDate: dateIso, text: 'Sleep', startMin: 1320, durMin: 480, bucketId: 'bk-life', cat: 'life' })],
+      dateIso,
+    )
+    expect(rows.map((r) => r.block.id)).toEqual(['sleep'])
+  })
 })
 
 describe('planForDate', () => {
