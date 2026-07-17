@@ -317,7 +317,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
           data={data}
           actions={actions}
           entryId={editingEntryId}
-          todayIso={todayIso}
+          dateIso={todayIso}
           onClose={() => setEditingEntryId(null)}
         />
       )}

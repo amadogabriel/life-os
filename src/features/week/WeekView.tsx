@@ -12,10 +12,12 @@ import {
   stripeVar,
   weekRange,
   type DayPlan,
+  type PlanItem,
 } from '../../lib/planner'
 import { BlockModal, type EditingBlock } from './BlockModal'
 import { DayEditor } from './DayEditor'
 import { TodayEditor } from '../today/TodayEditor'
+import { TodayEntryModal } from '../today/TodayEntryModal'
 
 const PXMIN = 30 / 60 // fixed scale: 1 hour = 30px, so a 1h block = one compact row
 const HOLD_MS = 320 // touch long-press before a block starts moving
@@ -34,6 +36,8 @@ export function WeekView({ data, actions, today }: ViewProps) {
   const [editing, setEditing] = useState<EditingBlock | null>(null)
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [editingToday, setEditingToday] = useState(false)
+  // A dated one-off being edited in its future day's column (entry-backed).
+  const [editingEntry, setEditingEntry] = useState<{ id: string; dateIso: string } | null>(null)
   const [dragVis, setDragVis] = useState<DragVis | null>(null)
   const styles = catStyles(data.buckets)
 
@@ -70,13 +74,16 @@ export function WeekView({ data, actions, today }: ViewProps) {
   for (let mm = Math.ceil(axisStart / 120) * 120; mm <= axisEnd; mm += 120) hourLabels.push(mm)
 
   // ----- drag a block across the grid (pointer-based, touch-friendly) -----
-  // Dragging exists only on projection columns: it edits the weekday Template.
+  // Dragging exists only on projection columns. A Template block edits the
+  // weekday Template; a dated one-off (entry-backed item) re-times its own Log
+  // Entry — dropping pins it at the drop time, cross-column moves its date.
   // Past columns are read-only and today's plan is edited via the Today editor.
 
   const colRefs = useRef<(HTMLDivElement | null)[]>([])
   // Drag state lives in a ref (always current at pointerup); dragVis mirrors it for rendering.
   const press = useRef<{
-    id: string
+    id: string // blockId for a Template block, entryId for a dated one-off
+    entryId: string | null // set only when dragging a dated one-off
     dow: number
     startX: number
     startY: number
@@ -116,7 +123,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
     p.active = true
     p.rects = colRefs.current.map((el) => el?.getBoundingClientRect() ?? null)
     const homeRect = p.rects[p.dow]
-    const startNow = dayPlans[p.dow].items.find((it) => it.blockId === p.id)?.start
+    const startNow = dayPlans[p.dow].items.find((it) => (it.entryId ?? it.blockId) === p.id)?.start
     if (homeRect && startNow !== undefined)
       p.grabDy = p.startY - (homeRect.top + (startNow - axisStart!) * PXMIN)
     // stop the page from scrolling while a block is in hand (touch)
@@ -158,7 +165,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
     setDragVis(null)
   }
 
-  function onBlockDown(e: ReactPointerEvent, dow: number, id: string) {
+  function onBlockDown(e: ReactPointerEvent, dow: number, it: PlanItem) {
     if (e.button !== 0 && e.pointerType === 'mouse') return
     try {
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
@@ -166,13 +173,16 @@ export function WeekView({ data, actions, today }: ViewProps) {
       // pointer already gone (or synthetic) — dragging still works while over the grid
     }
     const p = {
-      id,
+      id: it.entryId ?? it.blockId!,
+      entryId: it.entryId,
       dow,
       startX: e.clientX,
       startY: e.clientY,
       timer: null as number | null,
       active: false,
-      anchored: data.blocksByDow[dow].find((b) => b.id === id)?.anchored ?? false,
+      // A one-off drop always pins at the drop time, so it previews (and
+      // behaves) like an anchored block; Template blocks keep their own flag.
+      anchored: it.entryId ? true : (data.blocksByDow[dow].find((b) => b.id === it.blockId)?.anchored ?? false),
       grabDy: 0,
       rects: [] as (DOMRect | null)[],
       target: null as { dow: number; idx: number; min: number } | null,
@@ -211,9 +221,19 @@ export function WeekView({ data, actions, today }: ViewProps) {
       return // plain tap — let the click handler open the editor
     }
     suppressClick.current = true
-    const { id, dow: fromDow, anchored, target: t } = p
+    const { id, entryId, dow: fromDow, anchored, target: t } = p
     cleanupPress()
     if (!t) return
+    if (entryId) {
+      // Dated one-off: pin the Log Entry at the drop time; a cross-column
+      // drop also moves it to that column's date. Never touches the Template.
+      await actions.updateLogEntry(entryId, {
+        startMin: t.min,
+        anchored: true,
+        ...(t.dow !== fromDow && { onDate: isoDate(dates[t.dow]) }),
+      })
+      return
+    }
     if (t.dow === fromDow) {
       if (anchored) {
         // Vertical drag of a pinned block = move the pin to the drop time,
@@ -329,10 +349,19 @@ export function WeekView({ data, actions, today }: ViewProps) {
                   const top = Math.round((it.start - axisStart!) * PXMIN)
                   const hpx = Math.max(8, Math.round(it.durMin * PXMIN))
                   const tip = `${fmt(it.start)} · ${fmtDur(it.durMin)} — ${it.title}${it.detail ? '\n' + it.detail : ''}`
-                  const isDragging = editable && dragVis?.id === it.blockId
+                  // On a projection column an entry-backed item is a dated
+                  // one-off riding on the Template — its edits go to the Log
+                  // Entry, never the Template.
+                  const isOneOff = editable && it.entryId !== null
+                  const isDragging = editable && dragVis?.id === (it.entryId ?? it.blockId)
                   // Past columns render the frozen plan: times/titles only — no
                   // done/undone styling, no drag or edit affordances.
                   const interactive = editable || isToday
+                  const open = () => {
+                    if (isToday) setEditingToday(true)
+                    else if (isOneOff) setEditingEntry({ id: it.entryId!, dateIso: plan.dateIso })
+                    else setEditingDay(di)
+                  }
                   return (
                     <div
                       key={it.key}
@@ -349,7 +378,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
                       }}
                       tabIndex={interactive ? 0 : undefined}
                       title={tip}
-                      onPointerDown={editable ? (e) => onBlockDown(e, di, it.blockId!) : undefined}
+                      onPointerDown={editable ? (e) => onBlockDown(e, di, it) : undefined}
                       onPointerMove={editable ? onBlockMove : undefined}
                       onPointerUp={editable ? onBlockUp : undefined}
                       onPointerCancel={editable ? cleanupPress : undefined}
@@ -360,8 +389,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
                                 suppressClick.current = false
                                 return
                               }
-                              if (isToday) setEditingToday(true)
-                              else setEditingDay(di)
+                              open()
                             }
                           : undefined
                       }
@@ -370,8 +398,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
                           ? (e) => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
-                                if (isToday) setEditingToday(true)
-                                else setEditingDay(di)
+                                open()
                               }
                             }
                           : undefined
@@ -390,7 +417,7 @@ export function WeekView({ data, actions, today }: ViewProps) {
                     className="drop-line"
                     style={{
                       top:
-                        dragVis.fromDow === di && press.current?.anchored
+                        press.current?.anchored && (press.current?.entryId != null || dragVis.fromDow === di)
                           ? Math.round((dragVis.target.min - axisStart!) * PXMIN)
                           : dragVis.target.idx < plan.items.length
                             ? Math.round((plan.items[dragVis.target.idx].start - axisStart!) * PXMIN)
@@ -436,6 +463,19 @@ export function WeekView({ data, actions, today }: ViewProps) {
       )}
       {editingToday && (
         <TodayEditor data={data} actions={actions} todayIso={todayIso} onClose={() => setEditingToday(false)} />
+      )}
+      {editingEntry && (
+        <TodayEntryModal
+          data={data}
+          actions={actions}
+          entryId={editingEntry.id}
+          dateIso={editingEntry.dateIso}
+          onUnschedule={() => {
+            actions.unscheduleEntry(editingEntry.id)
+            setEditingEntry(null)
+          }}
+          onClose={() => setEditingEntry(null)}
+        />
       )}
     </div>
   )

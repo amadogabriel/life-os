@@ -3,7 +3,17 @@
 // env is configured — lets you run and click through the app with no project.
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Block, Cat, LogEntry, LogState } from '../planner'
-import { blockLogRowsFromEntries, doneBlockMap, dowMon, newLogEntry, reorderWithinSlots, resolve } from '../planner'
+import {
+  blockLogRowsFromEntries,
+  doneBlockMap,
+  dowMon,
+  isoDate,
+  manilaDate,
+  newLogEntry,
+  nextOneOffStart,
+  reorderWithinSlots,
+  resolve,
+} from '../planner'
 import {
   DEFAULT_NOTES,
   DEFAULT_WAKE_MIN,
@@ -413,30 +423,25 @@ export function useDemoActions(): PlannerActions {
         sprints: d.sprints.filter((s) => s.id !== id),
         logEntries: d.logEntries.map((e) => (e.sprintId === id ? { ...e, sprintId: null } : e)),
       })),
-    scheduleBlockFromEntry: (entryId, dow) =>
+    scheduleEntryToDate: (entryId, dateIso) =>
       mutate((d) => {
-        const e = d.logEntries.find((x) => x.id === entryId)
-        if (!e) return d
-        const id = nid()
-        const block: Block = {
-          id,
-          dow,
-          position: d.blocksByDow[dow].length,
-          cat: e.cat === 'open' ? 'work' : e.cat,
-          title: e.text,
-          detail: '',
-          startMin: 720,
-          durMin: 60,
-          anchored: false,
-          deep: false,
-          habitId: null,
-        }
+        const todayIso = isoDate(manilaDate(new Date()))
+        // Chain after the day's last planned item, ignoring the entry itself.
+        const others = d.logEntries.filter((e) => e.id !== entryId)
+        const startMin = nextOneOffStart({ blocksByDow: d.blocksByDow, logEntries: others }, dateIso, todayIso)
+        const position = others.filter((e) => e.onDate === dateIso).reduce((m, e) => Math.max(m, e.position + 1), 0)
         return {
           ...d,
-          blocksByDow: d.blocksByDow.map((bs, i) => (i === dow ? [...bs, block] : bs)),
-          logEntries: d.logEntries.map((x) => (x.id === entryId ? { ...x, blockId: id } : x)),
+          logEntries: d.logEntries.map((e) =>
+            e.id === entryId ? { ...e, onDate: dateIso, startMin, anchored: false, position } : e,
+          ),
         }
       }),
+    unscheduleEntry: (entryId) =>
+      mutate((d) => ({
+        ...d,
+        logEntries: d.logEntries.map((e) => (e.id === entryId ? { ...e, startMin: null, anchored: false } : e)),
+      })),
 
     async addDesignItem(item, position) {
       const id = nid()

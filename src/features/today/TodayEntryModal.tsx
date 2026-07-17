@@ -3,22 +3,26 @@ import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
 import { CATS, fmt, onTimelineEntries, parseTime, resolve, type Cat } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 
-/** Edits one entry on today's plan timeline — title, category, duration, and
+/** Edits one entry on a day's plan timeline — today's live plan, or a dated
+ *  one-off riding on a future day (then `onUnschedule` offers to clear its
+ *  start and send it back to the Sprint work card). Title, category, duration,
  *  anchor/start. Writes the Log Entry only; never touches the Template. */
 export function TodayEntryModal({
   data,
   actions,
   entryId,
-  todayIso,
+  dateIso,
+  onUnschedule,
   onClose,
 }: {
   data: PlannerData
   actions: PlannerActions
   entryId: string
-  todayIso: string
+  dateIso: string
+  onUnschedule?: () => void
   onClose: () => void
 }) {
-  const items = onTimelineEntries(data.logEntries, todayIso)
+  const items = onTimelineEntries(data.logEntries, dateIso)
   const index = items.findIndex((e) => e.id === entryId)
   const entry = items[index]
 
@@ -49,7 +53,7 @@ export function TodayEntryModal({
   }
 
   return (
-    <Modal title="Today's plan · edit item" onClose={onClose}>
+    <Modal title={onUnschedule ? 'Dated one-off · edit item' : "Today's plan · edit item"} onClose={onClose}>
       <div className="field">
         <label>Title</label>
         <input type="text" maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -89,6 +93,11 @@ export function TodayEntryModal({
         <button className="btn danger ghost" onClick={remove}>
           Delete
         </button>
+        {onUnschedule && (
+          <button className="btn ghost" title="Clear the start time — the task returns to the Sprint work card" onClick={onUnschedule}>
+            ↩ Unschedule
+          </button>
+        )}
         <div className="flex-1" />
         <button className="btn ghost" onClick={onClose}>
           Cancel

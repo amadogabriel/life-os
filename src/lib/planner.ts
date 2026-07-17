@@ -463,6 +463,65 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
 }
 
 /**
+ * Merge a future day's dated one-off entries (#13) into its already laid-out
+ * plan (`base` — the Template projection today; a Day Plan fork's layout works
+ * the same). One layout unit per item — base items pinned at their resolved
+ * starts (keeping their own anchored flag), one-offs at their stored
+ * `startMin` — sorted by start time and re-flowed through `resolve()`, so the
+ * merged day never overlaps: an unanchored one-off chains into the gap where
+ * its start time falls, an anchored one that a base item overruns is pushed
+ * down and flagged. Base items keep their relative order (their resolved
+ * starts are non-decreasing and the sort is stable).
+ */
+export function mergeDatedOneOffs(base: PlanItem[], oneOffs: LogEntry[]): PlanItem[] {
+  if (!oneOffs.length) return base
+  const units = base.map((item) => ({ startMin: item.start, durMin: item.durMin, anchored: item.anchored, item }))
+  for (const e of oneOffs) {
+    const durMin = e.durMin ?? DEFAULT_ENTRY_DUR
+    const startMin = e.startMin ?? 0
+    units.push({
+      startMin,
+      durMin,
+      anchored: e.anchored,
+      item: {
+        key: `entry:${e.id}`,
+        title: e.text,
+        detail: '',
+        cat: e.cat,
+        deep: e.deep,
+        durMin,
+        start: startMin,
+        conflict: false,
+        anchored: e.anchored,
+        blockId: e.blockId,
+        entryId: e.id,
+      },
+    })
+  }
+  units.sort((a, b) => a.startMin - b.startMin)
+  return resolve(units).map(({ block: u, start, conflict }) => ({
+    ...u.item,
+    start,
+    conflict: u.item.conflict || conflict,
+  }))
+}
+
+/** Fallback start for the first one-off on an otherwise empty day (09:00). */
+const EMPTY_DAY_START = 540
+
+/**
+ * Where a newly scheduled dated one-off lands on `dateIso`: chained,
+ * unanchored, right after the day's last planned item — whatever
+ * `planForDate` says that day's plan is (today's live timeline, or a future
+ * projection already merged with earlier one-offs). 09:00 on an empty day.
+ */
+export function nextOneOffStart(input: PlanForDateInput, dateIso: string, todayIso: string): number {
+  const items = planForDate(input, dateIso, todayIso).items
+  const last = items[items.length - 1]
+  return last ? Math.min(last.start + last.durMin, 1410) : EMPTY_DAY_START
+}
+
+/**
  * The single seam deciding what a Planner column shows for a calendar date.
  * Pure: planner data + ISO date (+ today's Manila-local ISO date) in,
  * laid-out day + source tag out.
@@ -472,9 +531,12 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
  *   state** (done/migrated/dropped are facts about the record; the plan is the
  *   plan as frozen). Never-materialized days come back empty (blank column).
  * - Today → 'today': the live plan, exactly `onTimelineEntries` (the Today tab's lens).
- * - Future date → 'projection': the weekday Template laid out by `resolve()`.
- *   TODO(slice #14): resolve a forked date from its Day Plan and tag it 'fork'.
- *   TODO(slice #13): merge dated one-off entries into the future day.
+ * - Future date → 'projection': the weekday Template laid out by `resolve()`,
+ *   then merged with the date's dated one-offs (entries with this `onDate` +
+ *   a `startMin`, same lens as the Today timeline) via `mergeDatedOneOffs` —
+ *   one-offs ride on top of the projection; they never fork the day.
+ *   TODO(slice #14): resolve a forked date from its Day Plan and tag it 'fork'
+ *   (one-offs merge onto the fork's layout the same way).
  */
 export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: string): DayPlan {
   if (dateIso < todayIso) {
@@ -500,7 +562,7 @@ export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: 
     blockId: b.id,
     entryId: null,
   }))
-  return { dateIso, source: 'projection', items }
+  return { dateIso, source: 'projection', items: mergeDatedOneOffs(items, onTimelineEntries(input.logEntries, dateIso)) }
 }
 
 /**

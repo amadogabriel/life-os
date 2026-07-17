@@ -2,12 +2,14 @@ import { useState } from 'react'
 import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
 import {
+  addDays,
   bullet,
   catStyles,
   DOW,
   isoDate,
+  manilaDate,
   stripeVar,
-  weekDates,
+  weekRange,
   type LogEntry,
   type Project,
   type ProjectStatus,
@@ -52,8 +54,10 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
   const [pName, setPName] = useState('')
   const [sName, setSName] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [wkOff, setWkOff] = useState(0) // Sprint work card's week pager (0 = this week)
   const styles = catStyles(data.buckets)
-  const todayIso = isoDate(today)
+  const todayDate = manilaDate(today)
+  const todayIso = isoDate(todayDate)
 
   const projects = [...data.projects].sort((a, b) => a.position - b.position)
   const project = projects.find((p) => p.id === sel) ?? null
@@ -66,13 +70,18 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
     .filter((e) => (e.kind === 'task' || e.kind === 'note') && e.state === 'open' && !e.projectId)
     .sort((a, b) => a.onDate.localeCompare(b.onDate))
 
-  // Sprint work: open tasks from active sprints, planned into the current week.
-  const week = weekDates(today)
+  // Sprint work: open active-sprint tasks not yet placed on a day. The moment
+  // a day is picked (a dated one-off — on_date + start_min) the task leaves
+  // this card and lives on its day in the Planner.
+  const wkRange = weekRange(todayDate, wkOff)
+  const week = Array.from({ length: 7 }, (_, i) => addDays(wkRange.start, i))
+  const wkLabel = wkOff === 0 ? 'this wk' : wkRange.label.replace('Week of ', '')
   const activeSprintIds = new Set(data.sprints.filter((s) => s.status === 'active').map((s) => s.id))
   const sprintById = new Map(data.sprints.map((s) => [s.id, s]))
   const projectById = new Map(data.projects.map((p) => [p.id, p]))
   const sprintTasks = data.logEntries.filter(
-    (e) => e.kind === 'task' && e.state === 'open' && e.sprintId && activeSprintIds.has(e.sprintId),
+    (e) =>
+      e.kind === 'task' && e.state === 'open' && e.sprintId && activeSprintIds.has(e.sprintId) && e.startMin == null,
   )
 
   async function addProject() {
@@ -228,8 +237,34 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
           <>
             <div className="subhead">Sprint work — plan into your week</div>
             <div className="overflow-hidden rounded-xl border" style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
+              <div className="flex items-center justify-end gap-1 px-2 pt-1.5">
+                <button
+                  className="btn ghost sm"
+                  style={{ minWidth: 32, minHeight: 32 }}
+                  aria-label="Previous week"
+                  title="Previous week"
+                  disabled={wkOff === 0}
+                  onClick={() => setWkOff((o) => Math.max(0, o - 1))}
+                >
+                  ‹
+                </button>
+                <span
+                  className="text-[11px]"
+                  style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)', minWidth: 64, textAlign: 'center' }}
+                >
+                  {wkLabel}
+                </span>
+                <button
+                  className="btn ghost sm"
+                  style={{ minWidth: 32, minHeight: 32 }}
+                  aria-label="Next week"
+                  title="Next week"
+                  onClick={() => setWkOff((o) => o + 1)}
+                >
+                  ›
+                </button>
+              </div>
               {sprintTasks.map((e) => {
-                const wk = week.findIndex((d) => isoDate(d) === e.onDate)
                 const sp = e.sprintId ? sprintById.get(e.sprintId) : undefined
                 const pr = sp ? projectById.get(sp.projectId) : undefined
                 return (
@@ -244,35 +279,29 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
                       )}
                     </span>
                     <span className="flex gap-0.5">
-                      {DOW.map((d, i) => (
-                        <button
-                          key={i}
-                          className={'btn ghost sm' + (wk === i ? ' deep-on' : '')}
-                          style={{ minWidth: 26, padding: '3px 5px' }}
-                          title={`Schedule ${d}`}
-                          onClick={() => actions.updateLogEntry(e.id, { onDate: isoDate(week[i]) })}
-                        >
-                          {d[0]}
-                        </button>
-                      ))}
+                      {DOW.map((d, i) => {
+                        const dayIso = isoDate(week[i])
+                        return (
+                          <button
+                            key={i}
+                            className="btn ghost sm"
+                            style={{ minWidth: 26, padding: '3px 5px' }}
+                            title={`Schedule ${d} ${week[i].getDate()}`}
+                            disabled={dayIso < todayIso}
+                            onClick={() => actions.scheduleEntryToDate(e.id, dayIso)}
+                          >
+                            {d[0]}
+                          </button>
+                        )
+                      })}
                     </span>
-                    {wk >= 0 && !e.blockId && (
-                      <button className="btn ghost sm" title="Drop onto that day's timeline" onClick={() => actions.scheduleBlockFromEntry(e.id, wk)}>
-                        ▸ block
-                      </button>
-                    )}
-                    {e.blockId && (
-                      <span className="text-[11px]" style={{ color: 'var(--accent)' }}>
-                        ▸ blocked
-                      </span>
-                    )}
                     <button className="chk" role="checkbox" aria-checked={false} title="Mark done" onClick={() => actions.updateLogEntry(e.id, { state: 'done' })}>
                       <Check />
                     </button>
                   </div>
                 )
               })}
-              <div className="hint">Tap a day to schedule; ▸ block drops it onto that day's timeline.</div>
+              <div className="hint">Tap a day (‹ › pages weeks) to schedule it there — the task moves to that day's Planner column.</div>
             </div>
           </>
         )}

@@ -144,7 +144,7 @@ export function TodayEditor({
           data={data}
           actions={actions}
           entryId={editingEntryId}
-          todayIso={todayIso}
+          dateIso={todayIso}
           onClose={() => setEditingEntryId(null)}
         />
       )}
