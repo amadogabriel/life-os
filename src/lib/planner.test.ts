@@ -431,6 +431,7 @@ const entry = (over: Partial<LogEntry>): LogEntry => ({
   cat: 'open',
   blockId: null,
   migratedTo: null,
+  habitId: null,
   projectId: null,
   sprintId: null,
   position: 0,

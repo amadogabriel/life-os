@@ -399,6 +399,7 @@ export type Database = {
           created_at: string
           deep: boolean
           dur_min: number | null
+          habit_id: string | null
           id: string
           kind: string
           migrated_to: string | null
@@ -421,6 +422,7 @@ export type Database = {
           created_at?: string
           deep?: boolean
           dur_min?: number | null
+          habit_id?: string | null
           id?: string
           kind?: string
           migrated_to?: string | null
@@ -443,6 +445,7 @@ export type Database = {
           created_at?: string
           deep?: boolean
           dur_min?: number | null
+          habit_id?: string | null
           id?: string
           kind?: string
           migrated_to?: string | null
@@ -470,6 +473,13 @@ export type Database = {
             columns: ["bucket_id"]
             isOneToOne: false
             referencedRelation: "buckets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "log_entries_habit_id_fkey"
+            columns: ["habit_id"]
+            isOneToOne: false
+            referencedRelation: "habits"
             referencedColumns: ["id"]
           },
           {
