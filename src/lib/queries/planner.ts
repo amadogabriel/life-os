@@ -22,6 +22,7 @@ import {
   blockLogRowsFromEntries,
   doneBlockMap,
   dowOfIso,
+  entryHabitMirror,
   forkCopies,
   isoDate,
   manilaDate,
@@ -261,6 +262,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     cat: e.cat as Cat,
     blockId: e.block_id,
     migratedTo: e.migrated_to,
+    habitId: e.habit_id ?? null,
     projectId: e.project_id,
     sprintId: e.sprint_id,
     position: e.position,
@@ -414,6 +416,9 @@ export interface PlannerActions {
     bucketId?: string | null
     cat?: Cat
     signifier?: LogSignifier
+    // A habit-traced chip placed via the Today editor carries its habit here so
+    // checking the entry off logs the habit (#24) — block-less entries only.
+    habitId?: string | null
     projectId?: string | null
     sprintId?: string | null
     durMin?: number | null
@@ -963,6 +968,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           bucket_id: entry.bucketId ?? null,
           cat,
           signifier: entry.signifier ?? '',
+          habit_id: entry.habitId ?? null,
           project_id: entry.projectId ?? null,
           sprint_id: entry.sprintId ?? null,
           dur_min: entry.durMin ?? null,
@@ -978,6 +984,7 @@ export function usePlannerActions(userId: string): PlannerActions {
     },
 
     async updateLogEntry(id, fields) {
+      const entry = qc.getQueryData<PlannerData>(plannerKey)?.logEntries.find((e) => e.id === id)
       patch((data) => ({
         ...data,
         logEntries: data.logEntries.map((e) => (e.id === id ? { ...e, ...fields } : e)),
@@ -1002,7 +1009,28 @@ export function usePlannerActions(userId: string): PlannerActions {
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
-      if (error) invalidate()
+      if (error) {
+        invalidate()
+        return
+      }
+
+      // Mirror a linked habit when this update flips the entry's state — the
+      // entry-based equivalent of toggleBlockLog's block->habit mirror (#24),
+      // for a habit-traced chip placed via the Today editor (no Block to hang
+      // it on). No-op for untraced or block-linked entries (entryHabitMirror).
+      if (entry && fields.state !== undefined) {
+        const mirror = entryHabitMirror(entry, fields.state)
+        if (mirror) {
+          const habitOn = !!qc.getQueryData<PlannerData>(plannerKey)?.habitLogs[entry.onDate]?.[mirror.habitId]
+          if (mirror.on !== habitOn) {
+            patchLog('habitLogs', mirror.habitId, entry.onDate)
+            const { error: hErr } = mirror.on
+              ? await supabase.from('habit_logs').upsert({ user_id: userId, habit_id: mirror.habitId, done_on: entry.onDate })
+              : await supabase.from('habit_logs').delete().eq('habit_id', mirror.habitId).eq('done_on', entry.onDate)
+            if (hErr) invalidate()
+          }
+        }
+      }
     },
 
     /** Re-number a day's on-timeline entries to match the given id order,

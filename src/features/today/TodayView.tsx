@@ -196,7 +196,9 @@ export function TodayView({ data, actions, today }: ViewProps) {
           <div style={{ columns: 2, columnGap: 0 }}>
             {resolved.map(({ block: e, start }) => {
               const checked = e.state === 'done'
-              const habitId = e.blockId ? blockById.get(e.blockId)?.habitId : null
+              // A Block-placed chip carries its habit on the Block; a chip placed
+              // via the Today editor carries it on the entry itself (#24).
+              const habitId = e.blockId ? blockById.get(e.blockId)?.habitId : e.habitId
               return (
                 <div
                   key={e.id}

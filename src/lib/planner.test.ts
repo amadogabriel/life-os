@@ -10,6 +10,7 @@ import {
   doneBlockMap,
   dowMon,
   dowOfIso,
+  entryHabitMirror,
   fmt,
   fmtDur,
   forkCopies,
@@ -1062,5 +1063,29 @@ describe('isTraceStale (finished target flags the chip)', () => {
 
   it('a done (not archived) project alone is not stale — only archived flags it', () => {
     expect(isTraceStale({ projectId: 'p3', sprintId: null }, projects, sprints)).toBe(false)
+  })
+})
+
+describe('entryHabitMirror (Today-editor chip logs its habit on check-off, #24)', () => {
+  it('a block-less habit-traced entry logs its habit when marked done', () => {
+    // The bug: a habit-traced chip placed via the Today editor is a block-less
+    // Log Entry; checking it off must now log the habit (it carries habitId).
+    expect(entryHabitMirror({ habitId: 'h1', blockId: null }, 'done')).toEqual({ habitId: 'h1', on: true })
+  })
+
+  it('un-logs the habit when the entry leaves the done state', () => {
+    expect(entryHabitMirror({ habitId: 'h1', blockId: null }, 'open')).toEqual({ habitId: 'h1', on: false })
+    expect(entryHabitMirror({ habitId: 'h1', blockId: null }, 'dropped')).toEqual({ habitId: 'h1', on: false })
+  })
+
+  it('an untraced entry yields no mirror', () => {
+    expect(entryHabitMirror({ habitId: null, blockId: null }, 'done')).toBeNull()
+  })
+
+  it('a block-linked entry yields no mirror — it mirrors through its Block instead', () => {
+    // Even if such an entry carried a habitId, the block->habit path
+    // (toggleBlockLog) owns the mirror; entryHabitMirror must stay out of it to
+    // avoid double-logging the Planner-placed path.
+    expect(entryHabitMirror({ habitId: 'h1', blockId: 'blk' }, 'done')).toBeNull()
   })
 })

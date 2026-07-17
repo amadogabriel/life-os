@@ -79,6 +79,11 @@ export interface LogEntry {
   cat: Cat
   blockId: string | null
   migratedTo: string | null
+  // A block-less entry's own habit Trace (#24): a habit-traced chip placed via
+  // the Today editor carries the task's habit here (a Block-placed chip rides on
+  // blocks.habit_id instead). Checking such an entry off logs the habit — see
+  // `entryHabitMirror`. Null everywhere = a vague/untraced entry.
+  habitId: string | null
   projectId: string | null
   sprintId: string | null
   position: number
@@ -107,6 +112,7 @@ export function newLogEntry(over: Partial<LogEntry> & Pick<LogEntry, 'id' | 'onD
     cat: 'open',
     blockId: null,
     migratedTo: null,
+    habitId: null,
     projectId: null,
     sprintId: null,
     position: 0,
@@ -231,6 +237,23 @@ export function freezeBlockEntry(
  */
 export function detachHabit<T extends { habitId: string | null }>(holder: T, habitId: string): T {
   return holder.habitId === habitId ? { ...holder, habitId: null } : holder
+}
+
+/**
+ * The habit-log mirror implied by flipping a Log Entry's state (#24): a
+ * block-less entry carrying a habit Trace (a habit-traced chip placed via the
+ * Today editor) logs its habit for that day when marked `done`, and un-logs it
+ * for any other state. Returns `null` — no mirror — for an untraced entry, or a
+ * block-linked one (that mirrors through its Block in `toggleBlockLog` instead,
+ * never here). Pure: entry + its next state in, the habit-log delta out; both
+ * backends apply the result (idempotently — skip when already in that state).
+ */
+export function entryHabitMirror(
+  entry: Pick<LogEntry, 'habitId' | 'blockId'>,
+  nextState: LogState,
+): { habitId: string; on: boolean } | null {
+  if (!entry.habitId || entry.blockId !== null) return null
+  return { habitId: entry.habitId, on: nextState === 'done' }
 }
 
 /**

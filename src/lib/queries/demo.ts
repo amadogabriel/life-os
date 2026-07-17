@@ -11,6 +11,7 @@ import {
   detachSprint,
   doneBlockMap,
   dowOfIso,
+  entryHabitMirror,
   forkCopies,
   freezeBlockEntry,
   isoDate,
@@ -397,9 +398,11 @@ export function useDemoActions(): PlannerActions {
       mutate((d) => ({
         ...d,
         habits: d.habits.filter((h) => h.id !== id),
-        // ON DELETE SET NULL mirror (#20): degrade every task/block traced to
-        // this habit to vague — the chip survives, the link dies.
+        // ON DELETE SET NULL mirror (#20/#24): degrade every task, block AND
+        // block-less entry traced to this habit to vague — the chip/entry
+        // survives, the link dies.
         buckets: mapAllTasks(d, (t) => detachHabit(t, id)),
+        logEntries: d.logEntries.map((e) => detachHabit(e, id)),
         ...mapAllBlocks(d, (b) => detachHabit(b, id)),
       })),
 
@@ -467,6 +470,7 @@ export function useDemoActions(): PlannerActions {
               cat: bucket?.cat ?? entry.cat ?? 'open',
               blockId: null,
               migratedTo: null,
+              habitId: entry.habitId ?? null,
               projectId: entry.projectId ?? null,
               sprintId: entry.sprintId ?? null,
               position,
@@ -481,7 +485,23 @@ export function useDemoActions(): PlannerActions {
       return id
     },
     updateLogEntry: (id, fields) =>
-      mutate((d) => ({ ...d, logEntries: d.logEntries.map((e) => (e.id === id ? { ...e, ...fields } : e)) })),
+      mutate((d) => {
+        const entry = d.logEntries.find((e) => e.id === id)
+        const logEntries = d.logEntries.map((e) => (e.id === id ? { ...e, ...fields } : e))
+        // Mirror a linked habit when this update flips the entry's state — the
+        // entry-based equivalent of toggleBlockLog's block->habit mirror (#24),
+        // for a habit-traced chip placed via the Today editor (no Block). No-op
+        // for untraced or block-linked entries (entryHabitMirror).
+        let habitLogs = d.habitLogs
+        const mirror = entry && fields.state !== undefined ? entryHabitMirror(entry, fields.state) : null
+        if (entry && mirror) {
+          const hday = { ...(habitLogs[entry.onDate] ?? {}) }
+          if (mirror.on) hday[mirror.habitId] = true
+          else delete hday[mirror.habitId]
+          habitLogs = { ...habitLogs, [entry.onDate]: hday }
+        }
+        return { ...d, logEntries, habitLogs }
+      }),
     deleteLogEntry: (id) => mutate((d) => ({ ...d, logEntries: d.logEntries.filter((e) => e.id !== id) })),
     reorderLogEntries: (dateIso, orderedIds) =>
       mutate((d) => {
@@ -517,6 +537,7 @@ export function useDemoActions(): PlannerActions {
               cat: src.cat,
               blockId: null,
               migratedTo: null,
+              habitId: null,
               projectId: null,
               sprintId: null,
               position,

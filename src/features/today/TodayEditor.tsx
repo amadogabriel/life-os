@@ -50,9 +50,10 @@ export function TodayEditor({
       durMin: 60,
       startMin: nextStartMin(),
       anchored: false,
-      // Carry the task's project trace (#21) onto today's entry so a check-off
-      // accrues to the project. (Habit traces ride on Blocks, not on directly
-      // added today entries — those have no Block to mirror the habit from.)
+      // Carry the task's traces onto today's entry so a check-off both logs the
+      // habit (#24 — the entry-based mirror, since a directly-added entry has no
+      // Block) and accrues to the project/sprint (#21).
+      habitId: task.habitId,
       projectId: task.projectId,
       sprintId: task.sprintId,
     })
