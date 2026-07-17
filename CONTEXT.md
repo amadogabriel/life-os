@@ -29,6 +29,24 @@ The layout rule that lays a day's Blocks in `position` order without overlap; an
 **anchored** Block holds its pinned start time, an unanchored one chains off the
 previous Block's end.
 
+**Planner**:
+The dated-weeks view (formerly "Week"). Plan-side in both directions: past days
+show the plan as it was frozen, future days show the Template **projected** onto
+real dates plus any Day Plan forks and dated one-offs. Paging it writes nothing.
+_Avoid_: week view, calendar
+
+**Day Plan (fork)**:
+A dated, whole-day copy of the weekday Template, created when the user edits one
+specific future date's plan ("just this Tuesday"). That date stops following the
+Template entirely. Plan-side only — `materialize_day` still turns it into the
+record. _Avoid_: exception, override (those suggest per-block granularity)
+
+**Dated one-off**:
+A plan item for one specific date riding on top of the day's projection — a Log
+Entry with a future `on_date` and a `start_min` (e.g. a sprint task scheduled
+onto next Wednesday). Does not fork the day. _Avoid_: block (it never enters the
+Template)
+
 ### Record (the past)
 
 **Daily Log**:
