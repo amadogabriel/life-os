@@ -46,7 +46,10 @@ export function TodayEntryModal({
   // `toggleBlockLog`, which reads the Block's `habitId`, not this entry's own.
   // Editing it here would be a no-op, so it's shown read-only; only entries
   // with no source Block (blockId === null) own an editable trace (#24).
-  const blockHabit = entry?.blockId ? data.blocksByDow.flat().find((b) => b.id === entry.blockId) : null
+  const blockHabit = entry?.blockId
+    ? (data.dayForks[dateIso] ?? []).find((b) => b.id === entry.blockId) ??
+      data.blocksByDow.flat().find((b) => b.id === entry.blockId)
+    : null
   const blockHabitName = blockHabit?.habitId ? data.habits.find((h) => h.id === blockHabit.habitId)?.name : null
 
   const [title, setTitle] = useState(entry?.text ?? '')
