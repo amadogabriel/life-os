@@ -112,7 +112,7 @@ function PlannerShell({
 
   return (
     <div className="mx-auto max-w-[1120px] px-[22px] pb-[100px]">
-      <header className="pt-10">
+      <header className="pt-4">
         <div className="flex flex-wrap items-center gap-2">
           <span
             className="ml-auto text-[11px] tracking-[0.03em]"
@@ -130,7 +130,7 @@ function PlannerShell({
           ))}
         </div>
       </header>
-      <main className="pt-[26px]">
+      <main className="pt-4">
         {tab === 'Today' && <TodayView {...viewProps} />}
         {tab === 'Log' && <LogView {...viewProps} />}
         {tab === 'Projects' && <ProjectsView {...viewProps} />}

@@ -248,7 +248,8 @@ body {
 .chip.sh { font-weight: 600; background: color-mix(in srgb, var(--stripe) 12%, var(--card)); border-left-width: 3px; }
 .chip:hover { border-color: var(--stripe); }
 .chip .add { color: var(--stripe); font-weight: 700; font-size: 13px; }
-.legend-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-soft); }
+.legend-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-soft); white-space: nowrap; }
+.legend-chip .dot { width: 8px; height: 8px; border-radius: 2px; }
 .addbucket { font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--ink-faint); background: transparent; border: 1px dashed var(--line); border-radius: 9px; padding: 11px; cursor: pointer; }
 .addbucket:hover { color: var(--accent); border-color: var(--accent); }
 .daycard { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }

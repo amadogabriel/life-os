@@ -377,10 +377,24 @@ export function PlannerView({ data, actions, today }: ViewProps) {
 
   return (
     <div>
-      <div className="view-head mb-[18px] flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+      <div className="view-head mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
         <div>
           <h2>Planner</h2>
           <p>{range.label}</p>
+        </div>
+        {/* Legend rides the header's empty middle instead of its own row —
+            keeps the week grid one line higher on screen. */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1 self-end pb-1">
+          {data.buckets.map((bk) => (
+            <span
+              key={bk.id}
+              className={`legend-chip s-${bk.cat}`}
+              style={stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets))}
+            >
+              <span className="dot" />
+              {bk.name}
+            </span>
+          ))}
         </div>
         <div className="flex items-center gap-1.5">
           <button
@@ -414,14 +428,6 @@ export function PlannerView({ data, actions, today }: ViewProps) {
             ›
           </button>
         </div>
-      </div>
-      <div className="mb-5 flex flex-wrap gap-x-[15px] gap-y-[7px]">
-        {data.buckets.map((bk) => (
-          <span key={bk.id} className={`legend-chip s-${bk.cat}`} style={stripeVar(blockStyle({ bucketId: bk.id, cat: bk.cat }, data.buckets))}>
-            <span className="dot" />
-            {bk.name}
-          </span>
-        ))}
       </div>
       <div className="week">
         <div>
