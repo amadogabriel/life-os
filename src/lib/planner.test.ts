@@ -524,6 +524,34 @@ describe('windowAccomplishments', () => {
     // Same partition as grouping by cat would have produced (work 90, math 90).
     expect(byId).toEqual({ 'bk-work': 90, 'bk-math': 90 })
   })
+
+  it('Depth/time lens (#38): a Container books hours + one deep session to the Block\'s Bucket, never split by its Agenda', () => {
+    // A deep Work Container with a Math Agenda item finished inside it. The
+    // Container's parent line owns the hours (Work) and the single deep session;
+    // the Math child completes but adds no hours and no deep session.
+    const entries = [
+      blockEntry({ id: 'par', blockId: 'deepC', bucketId: 'bk-work', cat: 'work', text: 'Engineering deep block', durMin: 120, deep: true }),
+      entry({ id: 'a1', blockId: 'deepC', isAgendaItem: true, state: 'done', text: 'Math proof', bucketId: 'bk-math', cat: 'math' }),
+    ]
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15', COUNTED_BUCKETS)
+    // Hours land wholly on the Block's Bucket (Work), never split to Math.
+    expect(Object.fromEntries(acc.byBucket.map((c) => [c.bucketId, c.mins]))).toEqual({ 'bk-work': 120 })
+    // Exactly one deep session (the deep Container), independent of the Agenda.
+    expect(acc.deepSessions).toBe(1)
+    // The child completes as a task but contributes no block-hours.
+    expect(acc.tasksDone).toBe(1)
+    expect(acc.totalBlocks).toBe(1)
+  })
+
+  it('Depth/time lens (#38): a shallow Container contributes zero deep sessions', () => {
+    const entries = [
+      blockEntry({ id: 'par', blockId: 'shC', bucketId: 'bk-work', cat: 'work', text: 'Shallow batch', durMin: 60, deep: false }),
+      entry({ id: 'a1', blockId: 'shC', isAgendaItem: true, state: 'done', text: 'Clear email', bucketId: 'bk-work', cat: 'work', deep: true }),
+    ]
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15', COUNTED_BUCKETS)
+    expect(acc.deepSessions).toBe(0) // the shallow Container never touches the deep scoreboard
+    expect(acc.byBucket[0].mins).toBe(60)
+  })
 })
 
 describe('doneBlockMap', () => {
