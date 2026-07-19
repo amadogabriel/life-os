@@ -442,6 +442,15 @@ export interface PlannerActions {
    *  reads as "scheduled" on its Board while living in the Container's Agenda,
    *  ordered at the end of that day's Agenda. */
   fillAgendaFromEntry(entryId: string, blockId: string, dateIso: string): Promise<void>
+  /** Un-fill an unfinished Agenda item in the Migration ritual (#37): drop the
+   *  parent-Container link (block_id + isAgendaItem) so it leaves the day's
+   *  Container and returns to its Board — keeping its project_id/sprint_id (a
+   *  Sprint card back to its Sprint; an ad-hoc item, no project, to the Inbox).
+   *  Never auto-carries into another Container. `toDate` (the ritual day)
+   *  becomes its home date — `on_date` is NOT NULL, so it can't be cleared, but
+   *  moving it off the stale past day keeps it from re-appearing in the ritual;
+   *  with no block link and no start, it renders only on its Board. */
+  unfillAgendaItem(entryId: string, toDate: string): Promise<void>
   updateLogEntry(
     id: string,
     fields: Partial<
@@ -1055,6 +1064,29 @@ export function usePlannerActions(userId: string): PlannerActions {
       const { error } = await supabase
         .from('log_entries')
         .update({ on_date: dateIso, block_id: blockId, is_agenda_item: true, start_min: null, position, updated_at: new Date().toISOString() })
+        .eq('id', entryId)
+      if (error) {
+        invalidate()
+        throw error
+      }
+      await invalidate()
+    },
+
+    async unfillAgendaItem(entryId, toDate) {
+      // Drop the parent-Container link; keep project/sprint (returns to Board).
+      // start_min stays null so it never lands on a timeline; on_date moves to
+      // the ritual day (can't be null) so it leaves the stale past day — with no
+      // block link + no start it renders only on its Board (filtered by
+      // project/sprint/inbox, not date).
+      patch((data) => ({
+        ...data,
+        logEntries: data.logEntries.map((e) =>
+          e.id === entryId ? { ...e, onDate: toDate, blockId: null, isAgendaItem: false, startMin: null } : e,
+        ),
+      }))
+      const { error } = await supabase
+        .from('log_entries')
+        .update({ on_date: toDate, block_id: null, is_agenda_item: false, start_min: null, updated_at: new Date().toISOString() })
         .eq('id', entryId)
       if (error) {
         invalidate()

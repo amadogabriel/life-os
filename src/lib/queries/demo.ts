@@ -513,6 +513,13 @@ export function useDemoActions(): PlannerActions {
           ),
         }
       }),
+    unfillAgendaItem: (entryId, toDate) =>
+      mutate((d) => ({
+        ...d,
+        logEntries: d.logEntries.map((e) =>
+          e.id === entryId ? { ...e, onDate: toDate, blockId: null, isAgendaItem: false, startMin: null } : e,
+        ),
+      })),
     updateLogEntry: (id, fields) =>
       mutate((d) => {
         const entry = d.logEntries.find((e) => e.id === id)

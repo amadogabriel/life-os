@@ -86,7 +86,12 @@ export function LogView({ data, actions, today }: ViewProps) {
     .filter((e) => e.kind === 'task' && e.state === 'open' && materializes(e, data.buckets) && e.onDate < realTodayIso)
     .sort((a, b) => a.onDate.localeCompare(b.onDate))
   async function carryAll() {
-    for (const e of staleOpen) await actions.migrateLogEntry(e.id, realTodayIso, false)
+    // An unfinished Agenda item un-fills back to its Board (#37) — it never
+    // auto-carries into a future Container; everything else migrates forward.
+    for (const e of staleOpen) {
+      if (e.isAgendaItem) await actions.unfillAgendaItem(e.id, realTodayIso)
+      else await actions.migrateLogEntry(e.id, realTodayIso, false)
+    }
   }
 
   function saveEdit(id: string) {
@@ -374,9 +379,15 @@ export function LogView({ data, actions, today }: ViewProps) {
                     {e.signifier === 'priority' && <span style={{ color: 'var(--accent)', marginRight: 5 }}>✷</span>}
                     {e.text}
                   </span>
-                  <button className="btn ghost sm" title="Carry forward to today" onClick={() => actions.migrateLogEntry(e.id, realTodayIso, false)}>
-                    › today
-                  </button>
+                  {e.isAgendaItem ? (
+                    <button className="btn ghost sm" title="Un-fill — return to its Board (Sprint/Inbox) to re-decide" onClick={() => actions.unfillAgendaItem(e.id, realTodayIso)}>
+                      ‹ un-fill
+                    </button>
+                  ) : (
+                    <button className="btn ghost sm" title="Carry forward to today" onClick={() => actions.migrateLogEntry(e.id, realTodayIso, false)}>
+                      › today
+                    </button>
+                  )}
                   <button className="x" title="Drop — no longer relevant" onClick={() => actions.updateLogEntry(e.id, { state: 'dropped' })}>
                     ✕
                   </button>

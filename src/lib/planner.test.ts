@@ -1158,6 +1158,23 @@ describe('Container Agenda (#32 fill)', () => {
     expect(day.source).toBe('projection')
   })
 
+  it('un-fill (#37): a migrated Agenda item leaves the Container but keeps its Sprint/Project', () => {
+    // Before: a Sprint card filled into the Container. After un-fill: parent
+    // link + isAgendaItem dropped, project/sprint kept → back on its Board.
+    const filled = entry({ id: 'card', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'Ship auth', projectId: 'p1', sprintId: 's1', startMin: null, position: 0 })
+    // The un-fill transformation (as both backends apply it): re-home to the
+    // ritual day, drop block link + role, keep the Trace.
+    const unfilled = { ...filled, onDate: '2026-07-17', blockId: null, isAgendaItem: false, startMin: null }
+    // No longer in the Container's Agenda…
+    expect(agendaItems([unfilled], 'deepC', '2026-07-16')).toHaveLength(0)
+    expect(agendaItems([unfilled], 'deepC', '2026-07-17')).toHaveLength(0)
+    // …but still carries its Project/Sprint (returns to its Board), and never
+    // lands in another Container (block link gone).
+    expect(unfilled.projectId).toBe('p1')
+    expect(unfilled.sprintId).toBe('s1')
+    expect(unfilled.blockId).toBeNull()
+  })
+
   it('planForDate today (#35): a materialized Container nests its Agenda; children never become timeline rows', () => {
     const entries: LogEntry[] = [
       entry({ id: 'par', onDate: todayIso, blockId: 'deepC', isAgendaItem: false, text: 'Engineering deep block', startMin: 540, durMin: 120, deep: true, state: 'open', position: 0 }),
