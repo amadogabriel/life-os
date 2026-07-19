@@ -3,6 +3,8 @@ import type { ViewProps } from '../../App'
 import { Check } from '../../components/Check'
 import {
   addDays,
+  agendaItems,
+  agendaView,
   blockStyle,
   depthClass,
   dowOfIso,
@@ -19,6 +21,7 @@ import {
   type LogEntry,
   type Resolved,
 } from '../../lib/planner'
+import { AgendaModal } from '../planner/AgendaModal'
 import { BlockModal, type EditingBlock } from '../planner/BlockModal'
 import { DayEditor } from '../planner/DayEditor'
 import { TodayEditor } from './TodayEditor'
@@ -68,12 +71,19 @@ export function TodayView({ data, actions, today }: ViewProps) {
     : frozenPastEntries(data.logEntries, viewedIso)
 
   const hlog = data.habitLogs[viewedIso] ?? {}
-  const blockById = new Map(data.blocksByDow.flat().map((b) => [b.id, b]))
+  // Includes forked-day blocks too (not just the weekday Template) so a
+  // Container's flag still resolves once today has been forked (#31-#40
+  // parity with PlannerView's containerBlockIds).
+  const blockById = new Map([
+    ...data.blocksByDow.flat().map((b) => [b.id, b] as const),
+    ...Object.values(data.dayForks).flat().map((b) => [b.id, b] as const),
+  ])
 
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [editing, setEditing] = useState<EditingBlock | null>(null)
   const [editingToday, setEditingToday] = useState(false)
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  const [editingAgenda, setEditingAgenda] = useState<{ blockId: string; dateIso: string; title: string } | null>(null)
   const [todoText, setTodoText] = useState('')
   const [dumpText, setDumpText] = useState('')
 
@@ -271,6 +281,10 @@ export function TodayView({ data, actions, today }: ViewProps) {
               // A Block-placed chip carries its habit on the Block; a chip placed
               // via the Today editor carries it on the entry itself (#24).
               const habitId = e.blockId ? blockById.get(e.blockId)?.habitId : e.habitId
+              // A Container's per-day action is filling its Agenda (never its
+              // Template editor) — same routing as PlannerView's `open()`.
+              const isContainer = !!e.blockId && !!blockById.get(e.blockId)?.container
+              const agenda = isContainer ? agendaItems(data.logEntries, e.blockId!, viewedIso).map(agendaView) : []
               return (
                 <div
                   key={e.id}
@@ -292,11 +306,19 @@ export function TodayView({ data, actions, today }: ViewProps) {
                   <div className="time">{fmt(start)}</div>
                   <button
                     className="cursor-pointer border-0 bg-transparent p-0 text-left"
-                    title="Edit this entry"
-                    onClick={() => (isViewingToday && e.blockId ? editSourceBlock(e.blockId) : setEditingEntryId(e.id))}
+                    title={isContainer ? 'Fill this Container’s Agenda' : 'Edit this entry'}
+                    onClick={() => {
+                      if (isViewingToday && isContainer) {
+                        setEditingAgenda({ blockId: e.blockId!, dateIso: viewedIso, title: e.text })
+                        return
+                      }
+                      if (isViewingToday && e.blockId) editSourceBlock(e.blockId)
+                      else setEditingEntryId(e.id)
+                    }}
                     style={{ color: 'inherit' }}
                   >
                     <div className="title">
+                      {isContainer && <span style={{ fontSize: 9, opacity: 0.7 }}>▤ </span>}
                       {e.text}
                       {habitId && (
                         <span title={`Logs habit: ${data.habits.find((h) => h.id === habitId)?.name ?? ''}`} style={{ marginLeft: 5, fontSize: 11 }}>
@@ -310,6 +332,15 @@ export function TodayView({ data, actions, today }: ViewProps) {
                         <span style={{ marginLeft: 5, fontSize: 11, color: 'var(--ink-faint)' }}>› migrated</span>
                       )}
                     </div>
+                    {agenda.length > 0 && (
+                      <ul className="agenda-mini">
+                        {agenda.map((a) => (
+                          <li key={a.entryId} className={a.state === 'done' ? 'done' : undefined}>
+                            {a.text}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </button>
                 </div>
               )
@@ -409,6 +440,16 @@ export function TodayView({ data, actions, today }: ViewProps) {
           past={!isViewingToday}
           todayIso={todayIso}
           onClose={() => setEditingEntryId(null)}
+        />
+      )}
+      {editingAgenda && (
+        <AgendaModal
+          data={data}
+          actions={actions}
+          blockId={editingAgenda.blockId}
+          dateIso={editingAgenda.dateIso}
+          title={editingAgenda.title}
+          onClose={() => setEditingAgenda(null)}
         />
       )}
     </div>
