@@ -35,6 +35,7 @@ export function ReportView({ data, today }: ViewProps) {
   const [mode, setMode] = useState<'week' | 'month'>('week')
   const projectById = new Map(data.projects.map((p) => [p.id, p]))
   const bucketById = new Map(data.buckets.map((bk) => [bk.id, bk]))
+  const sprintById = new Map(data.sprints.map((s) => [s.id, s]))
 
   const allDates = [...data.blockLogRows.map((r) => r.dateIso), ...data.logEntries.map((e) => e.onDate)]
   const earliest = allDates.length ? allDates.reduce((a, b) => (a < b ? a : b)) : isoDate(today)
@@ -170,6 +171,37 @@ export function ReportView({ data, today }: ViewProps) {
                 </div>
                 )
               })}
+
+              {/* Throughput lens (#39): project work that shipped — completions
+                  grouped by Project/Sprint/Bucket, attributed to the item's OWN
+                  Project (a Math Agenda item done in a Work Container shows as a
+                  Math/its-project completion here, while its hour stays Work
+                  above). Kept separate from the Depth/time lanes. */}
+              {(() => {
+                const rows = acc.throughput.filter((r) => r.projectId || r.sprintId)
+                if (rows.length === 0) return null
+                return rows.map((r, ri) => {
+                  const bk = r.bucketId ? bucketById.get(r.bucketId) : undefined
+                  const label = [r.projectId ? (projectById.get(r.projectId)?.name ?? 'project') : null, r.sprintId ? (sprintById.get(r.sprintId)?.name ?? 'sprint') : null]
+                    .filter(Boolean)
+                    .join(' · ')
+                  return (
+                    <div key={`tp-${ri}`} className="litem items-start">
+                      <span className="text-[11px] uppercase tracking-[0.08em]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)', minWidth: 150, flex: 'none' }}>
+                        {ri === 0 ? 'shipped' : ''}
+                      </span>
+                      <span className="txt" style={{ color: 'var(--ink-soft)' }}>
+                        <span style={{ fontWeight: 600 }}>{label || 'project'}</span>
+                        {bk ? <span style={{ color: 'var(--ink-faint)', fontSize: 11 }}> · {bk.name}</span> : null}
+                        <span style={{ color: 'var(--ink-faint)' }}> — {r.titles.join(' · ')}</span>
+                      </span>
+                      <span className="text-[11px]" style={{ fontFamily: 'var(--mono)', color: 'var(--ink-faint)', flex: 'none' }}>
+                        ×{r.count}
+                      </span>
+                    </div>
+                  )
+                })
+              })()}
 
               {wins.length > 0 && (
                 <div className="litem items-start">

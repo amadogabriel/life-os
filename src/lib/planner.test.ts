@@ -543,6 +543,26 @@ describe('windowAccomplishments', () => {
     expect(acc.totalBlocks).toBe(1)
   })
 
+  it('Throughput lens (#39): a completed Agenda item is attributed to its own Project/Sprint/Bucket', () => {
+    // Math Agenda item done inside a Work deep Container: a Work deep-hour on
+    // the Depth lens AND a Math completion on the Throughput lens — both true.
+    const entries = [
+      blockEntry({ id: 'par', blockId: 'deepC', bucketId: 'bk-work', cat: 'work', text: 'Engineering deep block', durMin: 120, deep: true }),
+      entry({ id: 'a1', blockId: 'deepC', isAgendaItem: true, state: 'done', text: 'Math proof', bucketId: 'bk-math', cat: 'math', projectId: 'p1', sprintId: 's1' }),
+    ]
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15', COUNTED_BUCKETS)
+    // Depth lens: the hour is Work.
+    expect(Object.fromEntries(acc.byBucket.map((c) => [c.bucketId, c.mins]))).toEqual({ 'bk-work': 120 })
+    // Throughput lens: the Math item credits its OWN Bucket/Project.
+    const math = acc.throughput.find((r) => r.bucketId === 'bk-math')!
+    expect(math.count).toBe(1)
+    expect(math.projectId).toBe('p1')
+    expect(math.sprintId).toBe('s1')
+    expect(math.titles).toEqual(['Math proof'])
+    // The Container parent is a separate completion (its own Work/no-project row).
+    expect(acc.throughput.find((r) => r.bucketId === 'bk-work')?.projectId ?? null).toBeNull()
+  })
+
   it('Depth/time lens (#38): a shallow Container contributes zero deep sessions', () => {
     const entries = [
       blockEntry({ id: 'par', blockId: 'shC', bucketId: 'bk-work', cat: 'work', text: 'Shallow batch', durMin: 60, deep: false }),

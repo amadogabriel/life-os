@@ -1366,6 +1366,21 @@ export interface BucketAccomplishment {
   deepSessions: number
 }
 
+/**
+ * A Throughput row (#39): completed task work grouped by its OWN Project /
+ * Sprint / Bucket — "what project work shipped", the complement to the
+ * Depth/time (hours) lens. A Math Agenda item finished inside a Work Container
+ * lands here as a **Math** completion (its own Bucket/Project), while its hours
+ * stay a Work deep-hour on the Depth lens — both true, no time-splitting.
+ */
+export interface ThroughputRow {
+  projectId: string | null
+  sprintId: string | null
+  bucketId: string | null
+  count: number
+  titles: string[]
+}
+
 export interface Accomplishments {
   byBucket: BucketAccomplishment[]
   tasksDone: number
@@ -1373,6 +1388,8 @@ export interface Accomplishments {
   migrated: number
   deepSessions: number
   totalBlocks: number
+  /** The Throughput lens: completions grouped by Project/Sprint/Bucket. */
+  throughput: ThroughputRow[]
 }
 
 /**
@@ -1420,6 +1437,10 @@ export function windowAccomplishments(
   let tasksDone = 0
   let events = 0
   let migrated = 0
+  // Throughput (#39): every done task completion grouped by its OWN
+  // Project/Sprint/Bucket — the Agenda item's own attribution, never the
+  // Container's. Separate from the Depth lane sums above (completions, not hours).
+  const throughputMap = new Map<string, ThroughputRow>()
   for (const e of logEntries) {
     if (!inWin(e.onDate)) continue
     // Block-sourced done entries are the "blocks" above; only hand-typed done
@@ -1427,7 +1448,15 @@ export function windowAccomplishments(
     if (e.kind === 'task' && e.state === 'done' && e.durMin == null) tasksDone++
     else if (e.kind === 'task' && e.state === 'migrated') migrated++
     if (e.kind === 'event') events++
+    if (e.kind === 'task' && e.state === 'done') {
+      const key = `${e.projectId ?? ''}|${e.sprintId ?? ''}|${e.bucketId ?? ''}`
+      const row = throughputMap.get(key) ?? { projectId: e.projectId, sprintId: e.sprintId, bucketId: e.bucketId, count: 0, titles: [] }
+      row.count++
+      row.titles.push(e.text)
+      throughputMap.set(key, row)
+    }
   }
+  const throughput = [...throughputMap.values()].sort((a, b) => b.count - a.count)
 
-  return { byBucket, tasksDone, events, migrated, deepSessions, totalBlocks }
+  return { byBucket, tasksDone, events, migrated, deepSessions, totalBlocks, throughput }
 }
