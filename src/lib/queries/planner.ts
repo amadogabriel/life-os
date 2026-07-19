@@ -20,7 +20,6 @@ import type {
   Trace,
 } from '../planner'
 import {
-  agendaItems,
   applyBoardMove,
   blockLogRowsFromEntries,
   doneBlockMap,
@@ -30,6 +29,7 @@ import {
   isoDate,
   manilaDate,
   newLogEntry,
+  nextAgendaPosition,
   reorderWithinSlots,
   scheduleSlot,
 } from '../planner'
@@ -1029,8 +1029,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       const cache = qc.getQueryData<PlannerData>(plannerKey)
       // Order within THIS Container's Agenda for THIS day (block_id + on_date),
       // not the day timeline — Agenda items carry order, never a start time.
-      const agenda = agendaItems(cache?.logEntries ?? [], blockId, dateIso)
-      const position = agenda.reduce((m, e) => Math.max(m, e.position + 1), 0)
+      const position = nextAgendaPosition(cache?.logEntries ?? [], blockId, dateIso)
       const { data, error } = await supabase
         .from('log_entries')
         .insert({
@@ -1052,8 +1051,7 @@ export function usePlannerActions(userId: string): PlannerActions {
 
     async fillAgendaFromEntry(entryId, blockId, dateIso) {
       const cache = qc.getQueryData<PlannerData>(plannerKey)
-      const agenda = agendaItems(cache?.logEntries ?? [], blockId, dateIso)
-      const position = agenda.reduce((m, e) => Math.max(m, e.position + 1), 0)
+      const position = nextAgendaPosition(cache?.logEntries ?? [], blockId, dateIso)
       // Optimistic: the SAME entry moves into the Agenda (project/sprint intact).
       patch((data) => ({
         ...data,

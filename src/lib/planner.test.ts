@@ -1202,6 +1202,19 @@ describe('Container Agenda (#32 fill)', () => {
     expect(view.sprintId).toBe('s1')
   })
 
+  it('planForDate today (#32): an EMPTY materialized Container still reads as a Container (fillable on the day)', () => {
+    // A deep Container materialized today with NO Agenda yet. It must still be
+    // flagged container (so its tap opens the Agenda fill surface), not a plain
+    // block — recognised by its source Block being a Container, not by children.
+    const entries: LogEntry[] = [
+      entry({ id: 'par', onDate: todayIso, blockId: 'deepC', isAgendaItem: false, text: 'Engineering deep block', startMin: 540, durMin: 120, deep: true, state: 'open', position: 0 }),
+    ]
+    const day = planForDate({ blocksByDow, logEntries: entries }, todayIso, todayIso)
+    const parent = day.items.find((i) => i.blockId === 'deepC')!
+    expect(parent.container).toBe(true)
+    expect(parent.agenda).toEqual([])
+  })
+
   it('reorder (#34): permuting Agenda ids within their slots leaves a same-day timeline entry put', () => {
     // Two agenda items (positions 0,1) and one timeline entry (position 2) on
     // the same day. Reordering the agenda must not disturb the timeline entry.

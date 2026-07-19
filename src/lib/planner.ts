@@ -378,6 +378,13 @@ export interface AgendaItemView {
   sprintId: string | null
 }
 
+/** The next Agenda position for a Container on a day — after the last filled
+ *  item, so a new fill lands at the end of the Agenda (order, not time). Both
+ *  backends share it for add-to-Agenda and fill-from-card. */
+export function nextAgendaPosition(entries: LogEntry[], blockId: string, dateIso: string): number {
+  return agendaItems(entries, blockId, dateIso).reduce((m, e) => Math.max(m, e.position + 1), 0)
+}
+
 export function agendaView(e: LogEntry): AgendaItemView {
   return {
     entryId: e.id,
@@ -1040,18 +1047,31 @@ export function forkCopies(
 
 /**
  * Nest each entry-backed Container parent line's Agenda under it (#35): for a
- * materialized day (today/past), an item whose `blockId` has filled Agenda
- * children on that date is a Container parent — mark it `container` and hang
- * its Agenda. An empty materialized Container has no children, so it renders as
- * a plain reserved line (its time still survives in the record). Concrete
- * blocks (no children) pass through untouched.
+ * materialized day (today/past), a parent line whose source Block is a
+ * Container is marked `container` and carries its Agenda children. `containerIds`
+ * (the Block ids flagged Container) is what makes an **empty** materialized
+ * Container still read as a Container — so it stays fillable on the day itself
+ * (#32, the concrete-day case), not just once it has children. A parent line
+ * whose Block was deleted but still has children is a Container too. Concrete
+ * blocks pass through untouched.
  */
-function attachAgenda(items: PlanItem[], entries: LogEntry[], dateIso: string): PlanItem[] {
+function attachAgenda(items: PlanItem[], entries: LogEntry[], dateIso: string, containerIds: Set<string>): PlanItem[] {
   return items.map((it) => {
     if (!it.blockId) return it
     const kids = agendaItems(entries, it.blockId, dateIso)
-    return kids.length ? { ...it, container: true, agenda: kids.map(agendaView) } : it
+    if (!kids.length && !containerIds.has(it.blockId)) return it
+    return { ...it, container: true, agenda: kids.map(agendaView) }
   })
+}
+
+/** The Block ids flagged as Containers, across every weekday Template lane and
+ *  every Day Plan fork — the lookup `attachAgenda` uses to recognise a
+ *  materialized Container's parent line by its source Block. */
+function containerBlockIds(input: PlanForDateInput): Set<string> {
+  const ids = new Set<string>()
+  for (const bs of input.blocksByDow) for (const b of bs) if (b.container) ids.add(b.id)
+  for (const bs of Object.values(input.dayForks ?? {})) for (const b of bs) if (b.container) ids.add(b.id)
+  return ids
 }
 
 /**
@@ -1083,13 +1103,13 @@ export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: 
       .filter((e) => e.onDate === dateIso && e.kind === 'task' && !e.isAgendaItem)
       .sort((a, b) => a.position - b.position)
     // Rendered at stored freeze-time starts, NOT re-flowed — see frozenPastItems.
-    return { dateIso, source: 'frozen-past', items: attachAgenda(frozenPastItems(frozen), input.logEntries, dateIso) }
+    return { dateIso, source: 'frozen-past', items: attachAgenda(frozenPastItems(frozen), input.logEntries, dateIso, containerBlockIds(input)) }
   }
   if (dateIso === todayIso) {
     return {
       dateIso,
       source: 'today',
-      items: attachAgenda(entryItems(onTimelineEntries(input.logEntries, dateIso)), input.logEntries, dateIso),
+      items: attachAgenda(entryItems(onTimelineEntries(input.logEntries, dateIso)), input.logEntries, dateIso, containerBlockIds(input)),
     }
   }
   const fork = input.dayForks?.[dateIso]

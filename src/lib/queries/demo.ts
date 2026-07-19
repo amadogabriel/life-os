@@ -4,7 +4,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Block, BoardMove, Cat, LogEntry, LogState } from '../planner'
 import {
-  agendaItems,
   applyBoardMove,
   blockLogRowsFromEntries,
   bucketIdForCat,
@@ -19,6 +18,7 @@ import {
   isoDate,
   manilaDate,
   newLogEntry,
+  nextAgendaPosition,
   reorderWithinSlots,
   scheduleSlot,
 } from '../planner'
@@ -490,8 +490,7 @@ export function useDemoActions(): PlannerActions {
       const id = nid()
       await mutate((d) => {
         // Order within THIS Container's Agenda for THIS day, not the timeline.
-        const agenda = agendaItems(d.logEntries, blockId, dateIso)
-        const position = agenda.reduce((m, e) => Math.max(m, e.position + 1), 0)
+        const position = nextAgendaPosition(d.logEntries, blockId, dateIso)
         return {
           ...d,
           logEntries: [
@@ -504,8 +503,7 @@ export function useDemoActions(): PlannerActions {
     },
     fillAgendaFromEntry: (entryId, blockId, dateIso) =>
       mutate((d) => {
-        const agenda = agendaItems(d.logEntries, blockId, dateIso)
-        const position = agenda.reduce((m, e) => Math.max(m, e.position + 1), 0)
+        const position = nextAgendaPosition(d.logEntries, blockId, dateIso)
         return {
           ...d,
           logEntries: d.logEntries.map((e) =>
