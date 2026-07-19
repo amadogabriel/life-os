@@ -104,6 +104,21 @@ export function TodayView({ data, actions, today }: ViewProps) {
   // "Next up" only means something for the actual live day.
   const nextUp = isViewingToday ? resolved.filter((r) => r.start + r.block.durMin > nowMin && r.block.state !== 'done')[0] : undefined
 
+  /** Open the full Bucket/Task/Detail/Deep/Habit editor (BlockModal, same as
+   *  a future day's) for a block-sourced entry on the live current day.
+   *  Always resolves to today's own Day Plan fork — lazily forking it on
+   *  first use, exactly like DayEditor's `lazyForkDate` — so an edit here
+   *  never leaks into the shared weekday Template (mirrors ADR-0002). */
+  async function editSourceBlock(blockId: string) {
+    const forked = data.dayForks[todayIso]?.some((b) => b.id === blockId)
+    if (forked) {
+      setEditing({ dow, blockId, forkDate: todayIso })
+      return
+    }
+    const idMap = await actions.forkDay(todayIso)
+    setEditing({ dow, blockId: idMap[blockId] ?? blockId, forkDate: todayIso })
+  }
+
   async function submitTodo() {
     const t = todoText.trim()
     if (!t) return
@@ -278,7 +293,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                   <button
                     className="cursor-pointer border-0 bg-transparent p-0 text-left"
                     title="Edit this entry"
-                    onClick={() => setEditingEntryId(e.id)}
+                    onClick={() => (isViewingToday && e.blockId ? editSourceBlock(e.blockId) : setEditingEntryId(e.id))}
                     style={{ color: 'inherit' }}
                   >
                     <div className="title">
