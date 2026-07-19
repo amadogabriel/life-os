@@ -6,8 +6,9 @@ import { TimelineEditor } from '../../components/TimelineEditor'
 import { BucketModal } from '../design/BucketModal'
 
 /** Design-a-day-style editor for one weekday: the day's blocks on a
- *  proportional timeline (drag to reorder, drag the bottom edge to resize in
- *  30-min snaps), plus the bucket palette to tap-add or drag-in tasks.
+ *  proportional timeline (drag to reorder, drag the bottom edge to resize,
+ *  drag the top edge to move-and-pin the start, all in 30-min snaps), plus
+ *  the bucket palette to tap-add or drag-in tasks.
  *
  *  With `forkDate` set it edits that date's Day Plan (whole-day fork) instead
  *  of the weekday Template — same editor, edits routed to the fork's dated
@@ -100,7 +101,7 @@ export function DayEditor({
             items={blocks}
             buckets={data.buckets}
             onSetMins={(id, mins) => updateBlock(id, { durMin: mins })}
-            onSetStart={(id, startMin) => updateBlock(id, { startMin })}
+            onSetStart={(id, startMin) => updateBlock(id, { startMin, anchored: true })}
             onReorder={(ids) => reorderBlocks(ids)}
             onRemove={(id) => removeBlock(id)}
             onTitleClick={editBlock}

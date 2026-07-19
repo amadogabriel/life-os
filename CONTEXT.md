@@ -27,7 +27,16 @@ _Avoid_: event, task (those are Log Entry kinds)
 **Re-flow**:
 The layout rule that lays a day's Blocks in `position` order without overlap; an
 **anchored** Block holds its pinned start time, an unanchored one chains off the
-previous Block's end.
+previous Block's end. Re-flow never shrinks a Block: when an anchored Block's
+pinned start can't be honored, the Block is pushed later and marked in
+**conflict**.
+
+**Gap**:
+The empty span between one Block's end and the next Block's start. Derived, not
+stored — a Gap is the absence of a Block, never an entity. Because unanchored
+Blocks chain, a Gap can only exist in front of an anchored Block (or between the
+day's start and an anchored first Block).
+_Avoid_: open block, open time (and "open" is a retired category name)
 
 **Planner**:
 The dated-weeks view (formerly "Week"). Plan-side in both directions: past days

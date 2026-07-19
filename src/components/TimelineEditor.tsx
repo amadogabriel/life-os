@@ -24,9 +24,10 @@ const snap = (mins: number) => Math.min(MAX_DUR, Math.max(MIN_DUR, Math.round(mi
 
 /**
  * Proportional day timeline (week-view-look blocks) with editing: drag a card
- * to reorder, drag its bottom edge to resize in 30-min snaps, − / ＋ / ✕ on
- * the card. Gaps before anchored items render as open space. External chips
- * can be dropped anywhere; the payload is passed through to `onDropExternal`.
+ * to reorder, drag its bottom edge to resize in 30-min snaps, drag its top
+ * edge to move (and pin) its start, − / ＋ / ✕ on the card. Gaps before
+ * anchored items render as open space. External chips can be dropped
+ * anywhere; the payload is passed through to `onDropExternal`.
  */
 export function TimelineEditor({
   items,
@@ -43,7 +44,9 @@ export function TimelineEditor({
   items: TimelineItem[]
   startAt?: number
   onSetMins: (id: string, mins: number) => void
-  /** When given, anchored cards get a top handle that shifts their pinned start. */
+  /** When given, every card gets a top handle that moves its start time.
+   *  Callers must write `anchored: true` alongside the new start — the drag
+   *  pins the block (a Gap only exists in front of an anchored block). */
   onSetStart?: (id: string, startMin: number) => void
   onReorder: (orderedIds: string[]) => void
   onRemove: (id: string) => void
@@ -64,14 +67,19 @@ export function TimelineEditor({
     val: number
     startY: number
     orig: number
+    // Floor for 'start' drags: the previous block's end (0 for the first
+    // block) — a drag can never set a pin that re-flow would dishonor.
+    min: number
   } | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
+  // A 'start' drag previews as anchored so the gap it opens renders live even
+  // when the block is still unanchored (releasing the drag pins it).
   const live = items.map((it) =>
     resizing?.id === it.id
       ? resizing.mode === 'end'
         ? { ...it, durMin: resizing.val }
-        : { ...it, startMin: resizing.val }
+        : { ...it, startMin: resizing.val, anchored: true }
       : it,
   )
   const layout = resolve(live, startAt)
@@ -160,7 +168,7 @@ export function TimelineEditor({
     if (ids.some((x, i) => x !== items[i]?.id)) onReorder(ids)
   }
 
-  function startResize(e: PointerEvent, id: string, orig: number, mode: 'end' | 'start') {
+  function startResize(e: PointerEvent, id: string, orig: number, mode: 'end' | 'start', min = 0) {
     e.preventDefault()
     e.stopPropagation()
     try {
@@ -168,7 +176,7 @@ export function TimelineEditor({
     } catch {
       // pointer already gone (or synthetic) — resize still tracks while over the card
     }
-    setResizing({ id, mode, val: mode === 'end' ? snap(orig) : orig, startY: e.clientY, orig })
+    setResizing({ id, mode, val: mode === 'end' ? snap(orig) : orig, startY: e.clientY, orig, min })
   }
 
   function moveResize(e: PointerEvent) {
@@ -177,7 +185,7 @@ export function TimelineEditor({
     const val =
       resizing.mode === 'end'
         ? snap(resizing.orig + steps * SNAP)
-        : Math.max(0, Math.min(1439 - SNAP, resizing.orig + steps * SNAP))
+        : Math.max(resizing.min, Math.min(1439 - SNAP, resizing.orig + steps * SNAP))
     if (val !== resizing.val) setResizing({ ...resizing, val })
   }
 
@@ -278,16 +286,25 @@ export function TimelineEditor({
                   </button>
                 </div>
               </div>
-              {it.anchored && onSetStart && (
+              {onSetStart && (
                 <div
                   className="rzt"
-                  title="Drag to shift the pinned start time (30-min steps)"
+                  title={
+                    it.anchored
+                      ? 'Drag to shift the pinned start time (30-min steps)'
+                      : 'Drag to move the start time — pins the block (30-min steps)'
+                  }
                   draggable={false}
                   onDragStart={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
                   }}
-                  onPointerDown={(e) => startResize(e, it.id, it.startMin, 'start')}
+                  onPointerDown={(e) =>
+                    // Drag from the resolved start (an unanchored block's stored
+                    // startMin is stale); floor at the previous block's end (Gap
+                    // rule), day bounds for the first block.
+                    startResize(e, it.id, start, 'start', i > 0 ? layout[i - 1].start + layout[i - 1].block.durMin : 0)
+                  }
                   onPointerMove={moveResize}
                   onPointerUp={endResize}
                   onPointerCancel={() => setResizing(null)}

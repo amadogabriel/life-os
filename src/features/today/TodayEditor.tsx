@@ -145,7 +145,7 @@ export function TodayEditor({
             }))}
             buckets={data.buckets}
             onSetMins={(id, mins) => actions.updateLogEntry(id, { durMin: mins })}
-            onSetStart={(id, startMin) => actions.updateLogEntry(id, { startMin })}
+            onSetStart={(id, startMin) => actions.updateLogEntry(id, { startMin, anchored: true })}
             onReorder={(ids) => actions.reorderLogEntries(dateIso, ids)}
             onRemove={(id) => actions.deleteLogEntry(id)}
             onTitleClick={handleTitleClick}
