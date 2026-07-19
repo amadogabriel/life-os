@@ -361,7 +361,7 @@ export interface PlannerActions {
     fields: Partial<
       Pick<
         Block,
-        'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId' | 'projectId' | 'sprintId'
+        'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'container' | 'habitId' | 'projectId' | 'sprintId'
       >
     >,
   ): Promise<void>
@@ -648,7 +648,7 @@ export function usePlannerActions(userId: string): PlannerActions {
       return data.id
     },
 
-    async updateBlock(id: string, fields: Partial<Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'habitId' | 'projectId' | 'sprintId'>>) {
+    async updateBlock(id: string, fields: Partial<Pick<Block, 'bucketId' | 'cat' | 'title' | 'detail' | 'startMin' | 'durMin' | 'anchored' | 'deep' | 'container' | 'habitId' | 'projectId' | 'sprintId'>>) {
       // Optimistic: rapid ± duration taps must see each other's result. The id
       // may name a Template block or a Day Plan (fork) block — same table.
       patch((data) => ({
@@ -669,6 +669,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.durMin !== undefined && { dur_min: fields.durMin }),
           ...(fields.anchored !== undefined && { anchored: fields.anchored }),
           ...(fields.deep !== undefined && { deep: fields.deep }),
+          ...(fields.container !== undefined && { container: fields.container }),
           ...(fields.habitId !== undefined && { habit_id: fields.habitId }),
           ...(fields.projectId !== undefined && { project_id: fields.projectId }),
           ...(fields.sprintId !== undefined && { sprint_id: fields.sprintId }),

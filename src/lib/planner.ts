@@ -690,6 +690,10 @@ export interface PlanItem {
   bucketId: string | null
   cat: Cat
   deep: boolean
+  // A Container header (ADR-0006): a reserved chunk that holds a per-day Agenda.
+  // Projection/fork items carry the Block's flag; entry-backed items default
+  // false until a materialized Container parent line sets it (#35).
+  container: boolean
   durMin: number
   start: number // resolve()-computed start, minutes past midnight
   conflict: boolean
@@ -733,6 +737,7 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
     bucketId: e.bucketId, // Log Entries carry a Bucket reference (#18); color resolves live
     cat: e.cat,
     deep: e.deep,
+    container: false,
     durMin: e.durMin,
     start,
     conflict,
@@ -795,6 +800,7 @@ export function frozenPastItems(entries: LogEntry[]): PlanItem[] {
     bucketId: e.bucketId, // Log Entries carry a Bucket reference (#18); color resolves live
     cat: e.cat,
     deep: e.deep,
+    container: false,
     durMin: e.durMin ?? DEFAULT_ENTRY_DUR,
     start,
     conflict,
@@ -869,6 +875,7 @@ export function mergeDatedOneOffs(base: PlanItem[], oneOffs: LogEntry[]): PlanIt
         bucketId: e.bucketId, // Log Entries carry a Bucket reference (#18); color resolves live
         cat: e.cat,
         deep: e.deep,
+        container: false,
         durMin,
         start: startMin,
         conflict: false,
@@ -981,6 +988,7 @@ export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: 
     bucketId: b.bucketId,
     cat: b.cat,
     deep: b.deep,
+    container: b.container,
     durMin: b.durMin,
     start,
     conflict,

@@ -529,7 +529,7 @@ export function PlannerView({ data, actions, today }: ViewProps) {
                   return (
                     <div
                       key={it.key}
-                      className={`block s-${it.cat}${depthClass(it.deep)}${it.cat === 'open' ? ' is-open' : ''}${it.conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}${hpx < 22 ? ' tiny' : ''}`}
+                      className={`block s-${it.cat}${depthClass(it.deep)}${it.cat === 'open' ? ' is-open' : ''}${it.container ? ' is-container' : ''}${it.conflict ? ' conflict' : ''}${isDragging ? ' dragging' : ''}${hpx < 22 ? ' tiny' : ''}`}
                       style={{
                         ...stripeVar(blockStyle({ bucketId: it.bucketId, cat: it.cat }, data.buckets)),
                         top,
@@ -569,6 +569,7 @@ export function PlannerView({ data, actions, today }: ViewProps) {
                       }
                     >
                       <span className="nm">
+                        {it.container ? <span className="text-[9px] opacity-70">▤ </span> : null}
                         {it.title}
                         {it.anchored ? <span className="text-[8px]"> 📌</span> : null}
                       </span>

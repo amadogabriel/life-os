@@ -142,6 +142,11 @@ body {
 .block:hover { background: color-mix(in srgb, var(--paper) 50%, transparent); }
 .block:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .block.is-open { border-left-style: dashed; }
+/* A Container: a reserved chunk you fill with a per-day Agenda (ADR-0006).
+   Reads as an open frame — hatched fill + dashed top — distinct from a Concrete
+   Block's solid tint, so an empty Container is legible as fillable-but-empty. */
+.block.is-container { border-top-style: dashed; background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--stripe, var(--line)) 20%, transparent) 0 6px, transparent 6px 12px); }
+.block.is-container .nm { font-weight: 800; }
 .block.conflict { box-shadow: inset 2px 0 0 var(--danger); }
 .add-block { width: 100%; font-family: var(--sans); font-size: 11px; font-weight: 600; color: var(--ink-faint); background: transparent; border: 1px dashed var(--line); border-radius: 6px; padding: 5px; cursor: pointer; }
 .add-block:hover { color: var(--accent); border-color: var(--accent); }

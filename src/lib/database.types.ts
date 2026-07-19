@@ -97,6 +97,7 @@ export type Database = {
           anchored?: boolean
           bucket_id?: string | null
           cat?: string
+          container?: boolean
           deep?: boolean
           detail?: string
           dow?: number

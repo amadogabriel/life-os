@@ -43,6 +43,7 @@ export function BlockModal({
   const [dur, setDur] = useState(block?.durMin ?? 30)
   const [anchored, setAnchored] = useState(block?.anchored ?? false)
   const [deep, setDeep] = useState(block?.deep ?? false)
+  const [container, setContainer] = useState(block?.container ?? false)
   const [habitId, setHabitId] = useState(block?.habitId ?? '')
   const resolvedStart = index >= 0 ? resolve(blocks)[index].start : 0
   const [start, setStart] = useState(fmt(block?.anchored ? block.startMin : resolvedStart))
@@ -63,6 +64,7 @@ export function BlockModal({
       durMin: Math.max(5, dur || 30),
       anchored,
       deep,
+      container,
       habitId: habitId || null,
       ...(anchored && { startMin: parseTime(start) }),
     })
@@ -151,6 +153,10 @@ export function BlockModal({
       <label className="check">
         <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} /> ▲ Deep work
         (rendered saturated; shallow is muted)
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={container} onChange={(e) => setContainer(e.target.checked)} /> ▤
+        Container (a reserved chunk you fill with an Agenda per day — independent of Deep)
       </label>
       <div className="field">
         <label>Linked habit — checking this block off logs it 🔥</label>
