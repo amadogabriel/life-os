@@ -36,6 +36,17 @@ export function AgendaModal({
     await actions.addAgendaItem(blockId, dateIso, t)
   }
 
+  /** Move an Agenda item up/down in priority order (#34). Reuses
+   *  reorderLogEntries → reorderWithinSlots: the agenda ids are permuted within
+   *  their own position slots, so the day timeline and Board order are untouched. */
+  async function move(i: number, dir: -1 | 1) {
+    const j = i + dir
+    if (j < 0 || j >= items.length) return
+    const order = items.map((e) => e.id)
+    ;[order[i], order[j]] = [order[j], order[i]]
+    await actions.reorderLogEntries(dateIso, order)
+  }
+
   return (
     <Modal title={`▤ ${title} · Agenda`} onClose={onClose}>
       <p className="text-[11px] text-[var(--ink-faint)] mb-2">
@@ -46,7 +57,7 @@ export function AgendaModal({
         <p className="text-[12px] text-[var(--ink-soft)] italic mb-2">Empty — nothing filled in yet.</p>
       ) : (
         <ul className="agenda-list">
-          {items.map((e) => {
+          {items.map((e, i) => {
             const sprint = e.sprintId ? data.sprints.find((s) => s.id === e.sprintId) : undefined
             const project = e.projectId ? data.projects.find((p) => p.id === e.projectId) : undefined
             const src = sprint?.name ?? project?.name
@@ -55,6 +66,19 @@ export function AgendaModal({
                 <span className="bl">{bullet(e.kind, e.state)}</span>
                 <span className="tx">{e.text}</span>
                 {src ? <span className="src">{src}</span> : null}
+                <span className="ord">
+                  <button className="btn ghost" title="Higher priority" disabled={i === 0} onClick={() => move(i, -1)}>
+                    ↑
+                  </button>
+                  <button
+                    className="btn ghost"
+                    title="Lower priority"
+                    disabled={i === items.length - 1}
+                    onClick={() => move(i, 1)}
+                  >
+                    ↓
+                  </button>
+                </span>
               </li>
             )
           })}

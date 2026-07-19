@@ -1094,6 +1094,21 @@ describe('Container Agenda (#32 fill)', () => {
     // Still a projection (not a fork) — later Template edits keep flowing.
     expect(day.source).toBe('projection')
   })
+
+  it('reorder (#34): permuting Agenda ids within their slots leaves a same-day timeline entry put', () => {
+    // Two agenda items (positions 0,1) and one timeline entry (position 2) on
+    // the same day. Reordering the agenda must not disturb the timeline entry.
+    const dayEntries: LogEntry[] = [
+      entry({ id: 'a1', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, position: 0 }),
+      entry({ id: 'a2', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, position: 1 }),
+      entry({ id: 'tl', onDate: '2026-07-16', startMin: 600, position: 2 }),
+    ].sort((a, b) => a.position - b.position)
+    // reorderLogEntries reuses this: swap the two agenda ids, timeline id absent.
+    const reordered = reorderWithinSlots(dayEntries, ['a2', 'a1'])
+    expect(reordered.map((e) => e.id)).toEqual(['a2', 'a1', 'tl'])
+    // The timeline entry kept its slot (still last); only the agenda permuted.
+    expect(reordered[2].id).toBe('tl')
+  })
 })
 
 describe('reorderWithinSlots', () => {
