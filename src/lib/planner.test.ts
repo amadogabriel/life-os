@@ -482,6 +482,19 @@ describe('windowAccomplishments', () => {
     expect(acc.totalBlocks).toBe(1)
   })
 
+  it('a checked-off Agenda item records as a completion but adds no block-hours (#36)', () => {
+    // A done Agenda item carries no frozen duration (order, not time), so it
+    // counts as a task completion — never as a block-hour. The Container's
+    // parent line owns the hours; the child's completion is independent.
+    const entries = [
+      entry({ id: 'a1', blockId: 'deepC', isAgendaItem: true, state: 'done', text: 'Ship auth', projectId: 'p1', sprintId: 's1', bucketId: 'bk-math', cat: 'math' }),
+    ]
+    const acc = windowAccomplishments(entries, '2026-07-02', '2026-07-15', COUNTED_BUCKETS)
+    expect(acc.tasksDone).toBe(1)
+    expect(acc.totalBlocks).toBe(0) // no block-hours from the child
+    expect(acc.byBucket).toHaveLength(0)
+  })
+
   it('counts hand-typed done tasks, events and migrations, ignoring out-of-window rows', () => {
     const entries = [
       entry({ id: '1', kind: 'task', state: 'done' }), // hand-typed (durMin null)

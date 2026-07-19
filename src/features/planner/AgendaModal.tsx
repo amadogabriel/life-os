@@ -63,7 +63,16 @@ export function AgendaModal({
             const src = sprint?.name ?? project?.name
             return (
               <li key={e.id} className={`agenda-row${e.state === 'done' ? ' done' : ''}`}>
-                <span className="bl">{bullet(e.kind, e.state)}</span>
+                {/* Check off an Agenda item independently of the parent Container
+                    (#36): it keeps its own Project/Sprint, so finishing sprint
+                    work inside a deep block still credits the Project. */}
+                <button
+                  className="bl"
+                  title={e.state === 'done' ? 'Mark open' : 'Mark done'}
+                  onClick={() => actions.updateLogEntry(e.id, { state: e.state === 'done' ? 'open' : 'done' })}
+                >
+                  {bullet(e.kind, e.state)}
+                </button>
                 <span className="tx">{e.text}</span>
                 {src ? <span className="src">{src}</span> : null}
                 <span className="ord">
