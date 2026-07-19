@@ -57,6 +57,7 @@ export type Database = {
           anchored: boolean
           bucket_id: string | null
           cat: string
+          container: boolean
           deep: boolean
           detail: string
           dow: number
@@ -76,6 +77,7 @@ export type Database = {
           anchored?: boolean
           bucket_id?: string | null
           cat: string
+          container?: boolean
           deep?: boolean
           detail?: string
           dow: number
@@ -402,6 +404,7 @@ export type Database = {
           dur_min: number | null
           habit_id: string | null
           id: string
+          is_agenda_item: boolean
           kind: string
           migrated_to: string | null
           on_date: string
@@ -426,6 +429,7 @@ export type Database = {
           dur_min?: number | null
           habit_id?: string | null
           id?: string
+          is_agenda_item?: boolean
           kind?: string
           migrated_to?: string | null
           on_date: string
@@ -450,6 +454,7 @@ export type Database = {
           dur_min?: number | null
           habit_id?: string | null
           id?: string
+          is_agenda_item?: boolean
           kind?: string
           migrated_to?: string | null
           on_date?: string

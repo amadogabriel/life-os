@@ -76,6 +76,7 @@ function buildDemoData(): PlannerData {
         durMin: b.durMin,
         anchored: b.anchored,
         deep: isDeepDefault(b.cat, b.title),
+        container: false,
         habitId: null,
         projectId: null,
         sprintId: null,
@@ -157,6 +158,7 @@ function load(): PlannerData {
             ...b,
             bucketId: b.bucketId ?? bucketByCat.get(b.cat) ?? null,
             deep: b.deep ?? isDeepDefault(b.cat, b.title),
+            container: b.container ?? false,
             habitId: b.habitId ?? null,
             projectId: b.projectId ?? null,
             sprintId: b.sprintId ?? null,
@@ -304,7 +306,7 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) =>
         mapDow(d, dow, (blocks) => [
           ...blocks,
-          { id, dow, position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null, projectId: null, sprintId: null },
+          { id, dow, position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, container: false, habitId: null, projectId: null, sprintId: null },
         ]),
       )
       return id
@@ -369,7 +371,7 @@ export function useDemoActions(): PlannerActions {
       await mutate((d) =>
         mapFork(d, dateIso, (blocks) => [
           ...blocks,
-          { id, dow: dowOfIso(dateIso), position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, habitId: null, projectId: null, sprintId: null },
+          { id, dow: dowOfIso(dateIso), position, bucketId: null, cat: 'open', title: 'New block — assign', detail: '', startMin: 720, durMin: 30, anchored: false, deep: false, container: false, habitId: null, projectId: null, sprintId: null },
         ]),
       )
       return id
@@ -686,6 +688,7 @@ export function useDemoActions(): PlannerActions {
             durMin: it.mins,
             anchored: position === 0,
             deep: false,
+            container: false,
             habitId: null,
             projectId: null,
             sprintId: null,

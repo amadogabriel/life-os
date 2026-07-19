@@ -60,6 +60,7 @@ const b = (over: Partial<Block>): Block => ({
   startMin: 0,
   durMin: 60,
   anchored: false,
+  container: false,
   habitId: null,
   projectId: null,
   sprintId: null,
@@ -1032,6 +1033,14 @@ describe('forkCopies', () => {
     const { copies, idMap } = forkCopies([], () => 'x')
     expect(copies).toEqual([])
     expect(idMap).toEqual({})
+  })
+
+  it('carries the Container flag onto the fork copy (#30 propagation)', () => {
+    // A Container in the Template must stay a Container when a day forks —
+    // forking names what goes in the chunk, it never demotes it to Concrete.
+    const template = [b({ id: 'c', container: true }), b({ id: 'p', container: false })]
+    const { copies } = forkCopies(template, () => 'fk')
+    expect(copies.map((c) => c.container)).toEqual([true, false])
   })
 })
 

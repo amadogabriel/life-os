@@ -31,6 +31,10 @@ export interface Block extends Trace {
   durMin: number
   anchored: boolean
   deep: boolean
+  // A Container holds a per-day Agenda instead of being its own content
+  // (ADR-0006). Orthogonal to `deep`; default Concrete (false). Rides through
+  // forks and projected days with the rest of the Block shape.
+  container: boolean
 }
 
 export interface Day {
