@@ -7,7 +7,10 @@ writing to the same Supabase Postgres. Anything written here shows up in the
 app on its next refetch (window focus / ~15 s).
 
 > Copy this file to the folder you run Claude Code from (e.g. as `CLAUDE.md`)
-> or point Claude at it at the start of a session.
+> or point Claude at it at the start of a session. In this repo there's a
+> ready-made subagent that embodies this manual: `.claude/agents/operator.md`
+> — say "use the operator agent to …" and it handles the lookup, recipes, and
+> guardrails itself.
 
 For the domain vocabulary this manual assumes (Template / Block / Bucket /
 Trace / Log Entry / Materialize / Project / Sprint / Board / Board position…),
@@ -54,7 +57,11 @@ select user_id from profiles limit 1;
   gap if the day is ahead, and gets pushed down (never overlapped) if the day
   runs long. An unanchored block starts exactly at the previous block's end;
   its stored `start_min` is ignored except for the first block. Blocks never
-  overlap. `log_entries` on today's live timeline follow the same rule via
+  overlap. A **Gap** (open span between blocks) is derived, never stored — it
+  can only exist in front of an anchored block, so "move this block to 14:00
+  leaving the morning open" means `anchored = true, start_min = 840` (in the
+  UI, dragging a block's top edge does exactly this — it pins the block).
+  `log_entries` on today's live timeline follow the same rule via
   their own `start_min`/`anchored`; a *past* day's entries render at their
   frozen `start_min` with **no re-flow** (ADR-0002 amendment) — never
   recompute a past day's layout.
