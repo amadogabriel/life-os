@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agendaItems,
   applyBoardMove,
   blockLogRowsFromEntries,
   blockStyle,
@@ -434,6 +435,7 @@ const entry = (over: Partial<LogEntry>): LogEntry => ({
   bucketId: null,
   cat: 'open',
   blockId: null,
+  isAgendaItem: false,
   migratedTo: null,
   habitId: null,
   projectId: null,
@@ -1041,6 +1043,56 @@ describe('forkCopies', () => {
     const template = [b({ id: 'c', container: true }), b({ id: 'p', container: false })]
     const { copies } = forkCopies(template, () => 'fk')
     expect(copies.map((c) => c.container)).toEqual([true, false])
+  })
+})
+
+describe('Container Agenda (#32 fill)', () => {
+  const todayIso = '2026-07-15' // Wednesday
+  // Thursday Template: one Container, one Concrete block.
+  const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
+  blocksByDow[3] = [
+    b({ id: 'deepC', dow: 3, position: 0, title: 'Engineering deep block', cat: 'work', startMin: 540, durMin: 120, anchored: true, deep: true, container: true }),
+    b({ id: 'lunch', dow: 3, position: 1, title: 'Lunch', cat: 'life', startMin: 0, durMin: 60 }),
+  ]
+
+  it('agendaItems: only this Container-and-day\'s children, in position order, parent line excluded', () => {
+    const entries: LogEntry[] = [
+      entry({ id: 'a2', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'Second', position: 1 }),
+      entry({ id: 'a1', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'First', position: 0 }),
+      // a materialized parent line shares block_id but is NOT an agenda item
+      entry({ id: 'parent', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: false, text: 'Engineering deep block', durMin: 120, position: 0 }),
+      // a different container, and a different day — both excluded
+      entry({ id: 'other', onDate: '2026-07-16', blockId: 'otherC', isAgendaItem: true, text: 'Elsewhere', position: 0 }),
+      entry({ id: 'nextday', onDate: '2026-07-17', blockId: 'deepC', isAgendaItem: true, text: 'Tomorrow', position: 0 }),
+    ]
+    const got = agendaItems(entries, 'deepC', '2026-07-16')
+    expect(got.map((e) => e.id)).toEqual(['a1', 'a2'])
+  })
+
+  it('planForDate: a future Container carries its Agenda as an ordered checklist under the header', () => {
+    const entries: LogEntry[] = [
+      entry({ id: 'a1', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'Ship auth migration', projectId: 'p1', sprintId: 's1', position: 0 }),
+      entry({ id: 'a2', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'Call the plumber', position: 1 }),
+    ]
+    const day = planForDate({ blocksByDow, logEntries: entries }, '2026-07-16', todayIso) // Thursday
+    expect(day.source).toBe('projection')
+    const container = day.items.find((i) => i.blockId === 'deepC')!
+    expect(container.container).toBe(true)
+    expect(container.agenda.map((a) => a.text)).toEqual(['Ship auth migration', 'Call the plumber'])
+    expect(container.agenda[0].projectId).toBe('p1')
+    // The Concrete block has no agenda
+    expect(day.items.find((i) => i.blockId === 'lunch')!.agenda).toEqual([])
+    // Agenda items (no startMin) never leak into the timeline as their own items
+    expect(day.items.some((i) => i.entryId === 'a1')).toBe(false)
+  })
+
+  it('planForDate: filling a future projected day does NOT fork it', () => {
+    const entries: LogEntry[] = [
+      entry({ id: 'a1', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'Task', position: 0 }),
+    ]
+    const day = planForDate({ blocksByDow, logEntries: entries }, '2026-07-16', todayIso)
+    // Still a projection (not a fork) — later Template edits keep flowing.
+    expect(day.source).toBe('projection')
   })
 })
 

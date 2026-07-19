@@ -16,6 +16,7 @@ import {
   type DayPlan,
   type PlanItem,
 } from '../../lib/planner'
+import { AgendaModal } from './AgendaModal'
 import { BlockModal, type EditingBlock } from './BlockModal'
 import { DayEditor } from './DayEditor'
 import { ForkPromptModal } from './ForkPromptModal'
@@ -64,6 +65,9 @@ export function PlannerView({ data, actions, today }: ViewProps) {
   const [editingToday, setEditingToday] = useState(false)
   // A dated one-off being edited in its future day's column (entry-backed).
   const [editingEntry, setEditingEntry] = useState<{ id: string; dateIso: string } | null>(null)
+  // Filling/managing a Container's per-day Agenda (ADR-0006) — a date-scoped
+  // surface, distinct from editing the Template Block itself.
+  const [editingAgenda, setEditingAgenda] = useState<{ blockId: string; dateIso: string; title: string } | null>(null)
   const [forkPrompt, setForkPrompt] = useState<ForkPrompt | null>(null)
   const [dragVis, setDragVis] = useState<DragVis | null>(null)
 
@@ -521,7 +525,12 @@ export function PlannerView({ data, actions, today }: ViewProps) {
                   // one-off opens its own entry modal — never the fork prompt.
                   const interactive = editable || isToday || isFork
                   const open = () => {
-                    if (isToday) setEditingToday(true)
+                    // A Container's primary per-day action is filling its Agenda
+                    // for THIS date (a Dated one-off surface — never forks). The
+                    // Template Block itself is still editable via the day editor.
+                    if (it.container && it.blockId && !isPast)
+                      setEditingAgenda({ blockId: it.blockId, dateIso: plan.dateIso, title: it.title })
+                    else if (isToday) setEditingToday(true)
                     else if (isOneOff) setEditingEntry({ id: it.entryId!, dateIso: plan.dateIso })
                     else if (isFork) setEditingFork(plan.dateIso)
                     else openProjectedDayEditor(di)
@@ -568,12 +577,23 @@ export function PlannerView({ data, actions, today }: ViewProps) {
                           : undefined
                       }
                     >
-                      <span className="nm">
-                        {it.container ? <span className="text-[9px] opacity-70">▤ </span> : null}
-                        {it.title}
-                        {it.anchored ? <span className="text-[8px]"> 📌</span> : null}
-                      </span>
-                      <span className="d">{fmtDur(it.durMin)}</span>
+                      <div className="bhead">
+                        <span className="nm">
+                          {it.container ? <span className="text-[9px] opacity-70">▤ </span> : null}
+                          {it.title}
+                          {it.anchored ? <span className="text-[8px]"> 📌</span> : null}
+                        </span>
+                        <span className="d">{fmtDur(it.durMin)}</span>
+                      </div>
+                      {it.container && it.agenda.length > 0 && (
+                        <ul className="agenda-mini">
+                          {it.agenda.map((a) => (
+                            <li key={a.entryId} className={a.state === 'done' ? 'done' : undefined}>
+                              {a.text}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   )
                 })}
@@ -652,6 +672,16 @@ export function PlannerView({ data, actions, today }: ViewProps) {
       )}
       {editing && (
         <BlockModal data={data} actions={actions} editing={editing} onClose={() => setEditing(null)} />
+      )}
+      {editingAgenda && (
+        <AgendaModal
+          data={data}
+          actions={actions}
+          blockId={editingAgenda.blockId}
+          dateIso={editingAgenda.dateIso}
+          title={editingAgenda.title}
+          onClose={() => setEditingAgenda(null)}
+        />
       )}
       {editingToday && (
         <TodayEditor data={data} actions={actions} dateIso={todayIso} onClose={() => setEditingToday(false)} />

@@ -20,6 +20,7 @@ import type {
   Trace,
 } from '../planner'
 import {
+  agendaItems,
   applyBoardMove,
   blockLogRowsFromEntries,
   doneBlockMap,
@@ -264,6 +265,7 @@ async function fetchPlanner(userId: string): Promise<PlannerData> {
     bucketId: e.bucket_id ?? null,
     cat: e.cat as Cat,
     blockId: e.block_id,
+    isAgendaItem: e.is_agenda_item ?? false,
     migratedTo: e.migrated_to,
     habitId: e.habit_id ?? null,
     projectId: e.project_id,
@@ -429,6 +431,11 @@ export interface PlannerActions {
     startMin?: number | null
     anchored?: boolean
   }): Promise<string>
+  /** Fill a Container's Agenda on `dateIso` with a brand-new ad-hoc task (#32):
+   *  one open Log Entry parented to Container Block `blockId` (block_id +
+   *  isAgendaItem), ordered at the end of that day's Agenda. Carries no
+   *  start/duration (order, not time) and never forks the day. Returns its id. */
+  addAgendaItem(blockId: string, dateIso: string, text: string): Promise<string>
   updateLogEntry(
     id: string,
     fields: Partial<
@@ -995,6 +1002,31 @@ export function usePlannerActions(userId: string): PlannerActions {
           anchored: entry.anchored ?? false,
           position,
           board_position: boardPosition,
+        })
+        .select('id')
+        .single()
+      if (error) throw error
+      await invalidate()
+      return data.id
+    },
+
+    async addAgendaItem(blockId, dateIso, text) {
+      const cache = qc.getQueryData<PlannerData>(plannerKey)
+      // Order within THIS Container's Agenda for THIS day (block_id + on_date),
+      // not the day timeline — Agenda items carry order, never a start time.
+      const agenda = agendaItems(cache?.logEntries ?? [], blockId, dateIso)
+      const position = agenda.reduce((m, e) => Math.max(m, e.position + 1), 0)
+      const { data, error } = await supabase
+        .from('log_entries')
+        .insert({
+          user_id: userId,
+          on_date: dateIso,
+          kind: 'task',
+          state: 'open',
+          text,
+          block_id: blockId,
+          is_agenda_item: true,
+          position,
         })
         .select('id')
         .single()

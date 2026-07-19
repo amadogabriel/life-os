@@ -4,6 +4,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Block, BoardMove, Cat, LogEntry, LogState } from '../planner'
 import {
+  agendaItems,
   applyBoardMove,
   blockLogRowsFromEntries,
   bucketIdForCat,
@@ -136,6 +137,7 @@ function load(): PlannerData {
         logEntries: (d.logEntries ?? []).map((e) => ({
           ...e,
           bucketId: e.bucketId ?? (e.cat !== 'open' ? (bucketByCat.get(e.cat) ?? null) : null),
+          isAgendaItem: e.isAgendaItem ?? false,
         })),
         projects: d.projects ?? [],
         sprints: d.sprints ?? [],
@@ -478,6 +480,7 @@ export function useDemoActions(): PlannerActions {
               bucketId: entry.bucketId ?? null,
               cat: bucket?.cat ?? entry.cat ?? 'open',
               blockId: null,
+              isAgendaItem: false,
               migratedTo: null,
               habitId: entry.habitId ?? null,
               projectId: entry.projectId ?? null,
@@ -489,6 +492,22 @@ export function useDemoActions(): PlannerActions {
               startMin: entry.startMin ?? null,
               anchored: entry.anchored ?? false,
             },
+          ],
+        }
+      })
+      return id
+    },
+    async addAgendaItem(blockId, dateIso, text) {
+      const id = nid()
+      await mutate((d) => {
+        // Order within THIS Container's Agenda for THIS day, not the timeline.
+        const agenda = agendaItems(d.logEntries, blockId, dateIso)
+        const position = agenda.reduce((m, e) => Math.max(m, e.position + 1), 0)
+        return {
+          ...d,
+          logEntries: [
+            ...d.logEntries,
+            newLogEntry({ id, onDate: dateIso, text, blockId, isAgendaItem: true, position }),
           ],
         }
       })
@@ -558,6 +577,7 @@ export function useDemoActions(): PlannerActions {
               bucketId: src.bucketId,
               cat: src.cat,
               blockId: null,
+              isAgendaItem: false,
               migratedTo: null,
               habitId: null,
               projectId: null,

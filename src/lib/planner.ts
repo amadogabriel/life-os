@@ -82,6 +82,11 @@ export interface LogEntry {
   bucketId: string | null
   cat: Cat
   blockId: string | null
+  // The block_id role disambiguator (ADR-0006). false = a normal entry or a
+  // Container's materialized parent line (block_id means "materialized FROM this
+  // Block", 1:1). true = an Agenda item filled UNDER a Container (block_id is a
+  // parent link, N:1) — a Dated one-off carrying order but no timeline start.
+  isAgendaItem: boolean
   migratedTo: string | null
   // A block-less entry's own habit Trace (#24): a habit-traced chip placed via
   // the Today editor carries the task's habit here (a Block-placed chip rides on
@@ -120,6 +125,7 @@ export function newLogEntry(over: Partial<LogEntry> & Pick<LogEntry, 'id' | 'onD
     bucketId: null,
     cat: 'open',
     blockId: null,
+    isAgendaItem: false,
     migratedTo: null,
     habitId: null,
     projectId: null,
@@ -342,6 +348,47 @@ export function onTimelineEntries(entries: LogEntry[], dateIso: string): LogEntr
         e.onDate === dateIso && e.kind === 'task' && e.startMin != null && e.state !== 'dropped' && e.state !== 'migrated',
     )
     .sort((a, b) => a.position - b.position)
+}
+
+/**
+ * A Container's **Agenda** on `dateIso`: the Log Entries filled under Container
+ * Block `blockId` (an N:1 parent link on `block_id`, marked `isAgendaItem`),
+ * in priority order. Excludes the Container's own materialized parent line
+ * (`isAgendaItem` false) — parent and children share `block_id` and are told
+ * apart by role (ADR-0006). Ordered by `position` (order, never duration).
+ */
+export function agendaItems(entries: LogEntry[], blockId: string, dateIso: string): LogEntry[] {
+  return entries
+    .filter((e) => e.isAgendaItem && e.blockId === blockId && e.onDate === dateIso)
+    .sort((a, b) => a.position - b.position)
+}
+
+/** A trimmed Agenda item for rendering as a checklist row under a Container
+ *  header — keeps its own state (for the ✓/strike) and its own Bucket/Trace so
+ *  a completion credits the item's own Project/Sprint (#36/#39), not the
+ *  Container's. `startMin`/`durMin` are deliberately absent: order, not time. */
+export interface AgendaItemView {
+  entryId: string
+  text: string
+  state: LogState
+  deep: boolean
+  bucketId: string | null
+  cat: Cat
+  projectId: string | null
+  sprintId: string | null
+}
+
+export function agendaView(e: LogEntry): AgendaItemView {
+  return {
+    entryId: e.id,
+    text: e.text,
+    state: e.state,
+    deep: e.deep,
+    bucketId: e.bucketId,
+    cat: e.cat,
+    projectId: e.projectId,
+    sprintId: e.sprintId,
+  }
 }
 
 /**
@@ -694,6 +741,10 @@ export interface PlanItem {
   // Projection/fork items carry the Block's flag; entry-backed items default
   // false until a materialized Container parent line sets it (#35).
   container: boolean
+  // The Container's Agenda for this day — its filled Agenda items in priority
+  // order, rendered as a checklist under the header. Empty for a Concrete Block
+  // or an unfilled Container.
+  agenda: AgendaItemView[]
   durMin: number
   start: number // resolve()-computed start, minutes past midnight
   conflict: boolean
@@ -738,6 +789,7 @@ function entryItems(entries: LogEntry[]): PlanItem[] {
     cat: e.cat,
     deep: e.deep,
     container: false,
+    agenda: [],
     durMin: e.durMin,
     start,
     conflict,
@@ -801,6 +853,7 @@ export function frozenPastItems(entries: LogEntry[]): PlanItem[] {
     cat: e.cat,
     deep: e.deep,
     container: false,
+    agenda: [],
     durMin: e.durMin ?? DEFAULT_ENTRY_DUR,
     start,
     conflict,
@@ -876,6 +929,7 @@ export function mergeDatedOneOffs(base: PlanItem[], oneOffs: LogEntry[]): PlanIt
         cat: e.cat,
         deep: e.deep,
         container: false,
+        agenda: [],
         durMin,
         start: startMin,
         conflict: false,
@@ -989,6 +1043,9 @@ export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: 
     cat: b.cat,
     deep: b.deep,
     container: b.container,
+    // A Container's Agenda rides on top of the projection/fork as Dated one-offs
+    // (Log Entries parented via block_id) — it never forks the day (#32/US-13).
+    agenda: b.container ? agendaItems(input.logEntries, b.id, dateIso).map(agendaView) : [],
     durMin: b.durMin,
     start,
     conflict,
