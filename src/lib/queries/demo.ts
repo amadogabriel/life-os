@@ -15,13 +15,11 @@ import {
   dowOfIso,
   entryHabitMirror,
   forkCopies,
-  freezeBlockEntry,
+  freezeDayBlocks,
   isoDate,
   manilaDate,
-  materializes,
   newLogEntry,
   reorderWithinSlots,
-  resolve,
   scheduleSlot,
 } from '../planner'
 import {
@@ -281,22 +279,13 @@ export function useDemoActions(): PlannerActions {
       let count = 0
       await mutate((d) => {
         const dow = dowOfIso(dateIso)
-        const frozen = new Set(d.logEntries.filter((e) => e.onDate === dateIso && e.blockId).map((e) => e.blockId))
         // Fork wins: a forked date freezes from its Day Plan (even when
         // intentionally emptied), an unforked date from the weekday Template.
-        // Uncounted buckets (Life) never materialize; Unassigned (null) does
-        // (ADR-0003 #17) — mirrors materialize_day's counted gate.
-        const blocks = (d.dayForks[dateIso] ?? d.blocksByDow[dow] ?? []).filter((b) => materializes(b, d.buckets))
-        const resolved = resolve(blocks)
-        let position = d.logEntries
-          .filter((e) => e.onDate === dateIso)
-          .reduce((m, e) => Math.max(m, e.position + 1), 0)
-        const added: LogEntry[] = resolved
-          .filter((r) => !frozen.has(r.block.id))
-          // freezeBlockEntry stamps the block's bucketId (#18) AND its
-          // project/sprint trace (#21) onto the frozen entry, mirroring the SQL
-          // materialize_day. Uncounted buckets were already filtered above (#17).
-          .map((r) => freezeBlockEntry(r.block, dateIso, r.start, position++, nid()))
+        // freezeDayBlocks is the pure mirror of the SQL materialize_day: counted
+        // gate, resolve() layout, add-only parent lines. A Container freezes to a
+        // lone parent; its pre-filled Agenda children already exist (#35).
+        const dayBlocks = d.dayForks[dateIso] ?? d.blocksByDow[dow] ?? []
+        const added = freezeDayBlocks(dayBlocks, d.logEntries, dateIso, d.buckets, nid)
         count = added.length
         return { ...d, logEntries: [...d.logEntries, ...added] }
       })

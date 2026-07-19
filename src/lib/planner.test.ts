@@ -18,6 +18,7 @@ import {
   forkCopies,
   fortnightReport,
   freezeBlockEntry,
+  freezeDayBlocks,
   frozenPastEntries,
   frozenPastItems,
   isCounted,
@@ -1095,6 +1096,22 @@ describe('Container Agenda (#32 fill)', () => {
     expect(day.source).toBe('projection')
   })
 
+  it('planForDate today (#35): a materialized Container nests its Agenda; children never become timeline rows', () => {
+    const entries: LogEntry[] = [
+      entry({ id: 'par', onDate: todayIso, blockId: 'deepC', isAgendaItem: false, text: 'Engineering deep block', startMin: 540, durMin: 120, deep: true, state: 'open', position: 0 }),
+      entry({ id: 'a1', onDate: todayIso, blockId: 'deepC', isAgendaItem: true, text: 'Ship auth', position: 1 }),
+      entry({ id: 'a2', onDate: todayIso, blockId: 'deepC', isAgendaItem: true, text: 'Fix flake', position: 2 }),
+    ]
+    const day = planForDate({ blocksByDow, logEntries: entries }, todayIso, todayIso)
+    expect(day.source).toBe('today')
+    const parent = day.items.find((i) => i.blockId === 'deepC')!
+    expect(parent.container).toBe(true)
+    expect(parent.agenda.map((a) => a.text)).toEqual(['Ship auth', 'Fix flake'])
+    // The two children collapse into the parent — not their own timeline items.
+    expect(day.items.filter((i) => i.blockId === 'deepC')).toHaveLength(1)
+    expect(day.items.some((i) => i.entryId === 'a1' || i.entryId === 'a2')).toBe(false)
+  })
+
   it('reorder (#34): permuting Agenda ids within their slots leaves a same-day timeline entry put', () => {
     // Two agenda items (positions 0,1) and one timeline entry (position 2) on
     // the same day. Reordering the agenda must not disturb the timeline entry.
@@ -1108,6 +1125,61 @@ describe('Container Agenda (#32 fill)', () => {
     expect(reordered.map((e) => e.id)).toEqual(['a2', 'a1', 'tl'])
     // The timeline entry kept its slot (still last); only the agenda permuted.
     expect(reordered[2].id).toBe('tl')
+  })
+})
+
+/** A fresh monotonic id source per test (stands in for crypto.randomUUID / the
+ *  demo counter). */
+const mkCounter = () => {
+  let n = 0
+  return () => `m${n++}`
+}
+
+describe('freezeDayBlocks (materialize mirror, #35 parent + children)', () => {
+  const container = b({ id: 'deepC', bucketId: 'bk-work', cat: 'work', title: 'Engineering deep block', startMin: 540, durMin: 120, anchored: true, deep: true, container: true })
+  const lunch = b({ id: 'lunch', bucketId: 'bk-life', cat: 'life', title: 'Lunch', startMin: 720, durMin: 60 })
+
+  it('a filled Container freezes into a parent line that coexists with its pre-filled children', () => {
+    // Children were filled ahead (Dated one-offs sharing block_id); they must
+    // NOT suppress creating the Container's parent line.
+    const children: LogEntry[] = [
+      entry({ id: 'a1', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'Ship auth', position: 0 }),
+      entry({ id: 'a2', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'Fix flake', position: 1 }),
+    ]
+    const added = freezeDayBlocks([container], children, '2026-07-16', COUNTED_BUCKETS, mkCounter())
+    // Exactly one new parent line for the Container.
+    expect(added).toHaveLength(1)
+    const parent = added[0]
+    expect(parent.blockId).toBe('deepC')
+    expect(parent.isAgendaItem).toBe(false) // the parent line, not an Agenda item
+    expect(parent.durMin).toBe(120) // the Container owns the span
+    expect(parent.deep).toBe(true)
+    // The record now reads as parent + its two children (all share block_id).
+    const record = [...children, ...added]
+    expect(record.filter((e) => e.blockId === 'deepC' && e.isAgendaItem)).toHaveLength(2)
+    expect(record.filter((e) => e.blockId === 'deepC' && !e.isAgendaItem)).toHaveLength(1)
+  })
+
+  it('an empty Container freezes into a lone parent line (reserved time survives)', () => {
+    const added = freezeDayBlocks([container], [], '2026-07-16', COUNTED_BUCKETS, mkCounter())
+    expect(added).toHaveLength(1)
+    expect(added[0].blockId).toBe('deepC')
+    expect(added[0].isAgendaItem).toBe(false)
+    expect(added[0].durMin).toBe(120)
+  })
+
+  it('is add-only/idempotent: an already-frozen parent line is not duplicated', () => {
+    const existing: LogEntry[] = [
+      entry({ id: 'p', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: false, durMin: 120, startMin: 540, position: 0 }),
+      entry({ id: 'a1', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, position: 1 }),
+    ]
+    const added = freezeDayBlocks([container], existing, '2026-07-16', COUNTED_BUCKETS, mkCounter())
+    expect(added).toHaveLength(0)
+  })
+
+  it('uncounted (Life) Containers/blocks never freeze — mirrors the counted gate', () => {
+    const added = freezeDayBlocks([lunch], [], '2026-07-16', COUNTED_BUCKETS, mkCounter())
+    expect(added).toHaveLength(0)
   })
 })
 

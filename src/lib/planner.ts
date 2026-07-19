@@ -982,6 +982,43 @@ export function scheduleSlot(
 }
 
 /**
+ * The daily freeze in pure form (#35) — the client/demo mirror of the SQL
+ * `materialize_day` RPC, kept in lockstep with it. Freezes `dateIso`'s plan
+ * Blocks (a fork's dated Blocks or the weekday Template) into new OPEN parent
+ * task Log Entries: only counted-Bucket blocks materialize (`materializes`),
+ * laid out by `resolve()`, one parent line per block.
+ *
+ * Containers (ADR-0006): a Container is a plain block here, so it freezes into
+ * exactly one **parent** line — its filled **Agenda items already exist** as
+ * Log Entries (Dated one-offs sharing the Container's `block_id`), so the
+ * parent + children shape emerges without copying anything. An **empty**
+ * Container still freezes into its lone parent line (reserved time survives).
+ * Crucially, the "already-frozen" guard counts **parent lines only**
+ * (`!isAgendaItem`): a pre-filled Container's children share its `block_id` but
+ * must NOT suppress creating the parent (the role split the SQL index encodes).
+ *
+ * Add-only and idempotent: a block whose parent line already exists is skipped,
+ * mirroring the SQL `on conflict (…) where block_id is not null and not
+ * is_agenda_item do nothing`. Returns the new parent entries to append.
+ */
+export function freezeDayBlocks(
+  dayBlocks: Block[],
+  logEntries: LogEntry[],
+  dateIso: string,
+  buckets: BucketCounted[],
+  mkId: () => string,
+): LogEntry[] {
+  const onDay = logEntries.filter((e) => e.onDate === dateIso)
+  // Parent lines already frozen for this day — Agenda children (isAgendaItem)
+  // share a Container's block_id but never count as its frozen parent line.
+  const frozen = new Set(onDay.filter((e) => e.blockId && !e.isAgendaItem).map((e) => e.blockId))
+  let position = onDay.reduce((m, e) => Math.max(m, e.position + 1), 0)
+  return resolve(dayBlocks.filter((b) => materializes(b, buckets)))
+    .filter((r) => !frozen.has(r.block.id))
+    .map((r) => freezeBlockEntry(r.block, dateIso, r.start, position++, mkId()))
+}
+
+/**
  * Copy a weekday's Template Blocks into dated fork copies for a Day Plan,
  * minting a fresh id for each via `mkId` (the caller supplies the id source —
  * `crypto.randomUUID` in the cloud backend, the demo's counter otherwise).
@@ -999,6 +1036,22 @@ export function forkCopies(
     return { ...b, id }
   })
   return { copies, idMap }
+}
+
+/**
+ * Nest each entry-backed Container parent line's Agenda under it (#35): for a
+ * materialized day (today/past), an item whose `blockId` has filled Agenda
+ * children on that date is a Container parent — mark it `container` and hang
+ * its Agenda. An empty materialized Container has no children, so it renders as
+ * a plain reserved line (its time still survives in the record). Concrete
+ * blocks (no children) pass through untouched.
+ */
+function attachAgenda(items: PlanItem[], entries: LogEntry[], dateIso: string): PlanItem[] {
+  return items.map((it) => {
+    if (!it.blockId) return it
+    const kids = agendaItems(entries, it.blockId, dateIso)
+    return kids.length ? { ...it, container: true, agenda: kids.map(agendaView) } : it
+  })
 }
 
 /**
@@ -1025,13 +1078,19 @@ export function forkCopies(
 export function planForDate(input: PlanForDateInput, dateIso: string, todayIso: string): DayPlan {
   if (dateIso < todayIso) {
     const frozen = input.logEntries
-      .filter((e) => e.onDate === dateIso && e.kind === 'task')
+      // Agenda items (isAgendaItem) render nested under their Container's parent
+      // line, never as their own timeline row — exclude them here (#35).
+      .filter((e) => e.onDate === dateIso && e.kind === 'task' && !e.isAgendaItem)
       .sort((a, b) => a.position - b.position)
     // Rendered at stored freeze-time starts, NOT re-flowed — see frozenPastItems.
-    return { dateIso, source: 'frozen-past', items: frozenPastItems(frozen) }
+    return { dateIso, source: 'frozen-past', items: attachAgenda(frozenPastItems(frozen), input.logEntries, dateIso) }
   }
   if (dateIso === todayIso) {
-    return { dateIso, source: 'today', items: entryItems(onTimelineEntries(input.logEntries, dateIso)) }
+    return {
+      dateIso,
+      source: 'today',
+      items: attachAgenda(entryItems(onTimelineEntries(input.logEntries, dateIso)), input.logEntries, dateIso),
+    }
   }
   const fork = input.dayForks?.[dateIso]
   const blocks = fork ?? input.blocksByDow[dowOfIso(dateIso)] ?? []
