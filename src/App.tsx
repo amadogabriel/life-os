@@ -122,9 +122,20 @@ function PlannerShell({
             {import.meta.env.VITE_APP_VERSION ? ` · ${import.meta.env.VITE_APP_VERSION}` : ''}
           </span>
         </div>
-        <div className="mt-2 flex gap-0.5 overflow-x-auto border-b" style={{ borderColor: 'var(--line)' }}>
+        {/* Sticky: the tab bar stays reachable however far a view scrolls. */}
+        <div
+          className="sticky top-0 z-20 mt-2 flex gap-0.5 overflow-x-auto border-b"
+          style={{ borderColor: 'var(--line)', background: 'var(--paper)' }}
+        >
           {TABS.map((t) => (
-            <button key={t} className={'tab' + (t === tab ? ' active' : '')} onClick={() => setTab(t)}>
+            <button
+              key={t}
+              className={'tab' + (t === tab ? ' active' : '')}
+              onClick={() => {
+                setTab(t)
+                window.scrollTo(0, 0)
+              }}
+            >
               {t}
             </button>
           ))}

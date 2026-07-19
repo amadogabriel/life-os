@@ -377,14 +377,14 @@ export function PlannerView({ data, actions, today }: ViewProps) {
 
   return (
     <div>
-      <div className="view-head mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-        <div>
+      <div className="view-head mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex items-baseline gap-2.5">
           <h2>Planner</h2>
-          <p>{range.label}</p>
+          <p style={{ margin: 0 }}>{range.label}</p>
         </div>
         {/* Legend rides the header's empty middle instead of its own row —
             keeps the week grid one line higher on screen. */}
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1 self-end pb-1">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1">
           {data.buckets.map((bk) => (
             <span
               key={bk.id}
