@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { blockStyle, depthClass, fromIso, longDate, resolve, stripeVar, viewedEntries } from '../../lib/planner'
+import { blockStyle, depthClass, dowOfIso, fromIso, longDate, resolve, stripeVar, viewedEntries } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 import { TimelineEditor } from '../../components/TimelineEditor'
+import { BlockModal, type EditingBlock } from '../planner/BlockModal'
 import { TodayEntryModal } from './TodayEntryModal'
 
 /** The single "day plan" editing affordance: drag to reorder, drag the bottom
@@ -36,8 +37,34 @@ export function TodayEditor({
   onClose: () => void
 }) {
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
+  const [editingBlock, setEditingBlock] = useState<EditingBlock | null>(null)
   const [touchedIds, setTouchedIds] = useState<Set<string>>(new Set())
   const items = viewedEntries(data.logEntries, dateIso, past)
+
+  /** Open the full Bucket/Task/Detail/Deep/Habit editor (BlockModal, same as
+   *  a future day's) for a block-sourced entry — lazily forking today's own
+   *  Day Plan on first use (mirrors DayEditor's lazyForkDate) so the edit
+   *  never leaks into the shared weekday Template. Live-today only: a past
+   *  day is already frozen, so its titles keep opening TodayEntryModal. */
+  async function editSourceBlock(blockId: string) {
+    const forked = data.dayForks[dateIso]?.some((b) => b.id === blockId)
+    const dow = dowOfIso(dateIso)
+    if (forked) {
+      setEditingBlock({ dow, blockId, forkDate: dateIso })
+      return
+    }
+    const idMap = await actions.forkDay(dateIso)
+    setEditingBlock({ dow, blockId: idMap[blockId] ?? blockId, forkDate: dateIso })
+  }
+
+  function handleTitleClick(id: string) {
+    const item = items.find((e) => e.id === id)
+    if (!past && item?.blockId) {
+      editSourceBlock(item.blockId)
+    } else {
+      setEditingEntryId(id)
+    }
+  }
 
   /** Where a freshly-added item lands: right after the day's last on-timeline
    *  entry. `startMin` is what marks an entry as "on the timeline" at all
@@ -121,7 +148,7 @@ export function TodayEditor({
             onSetStart={(id, startMin) => actions.updateLogEntry(id, { startMin })}
             onReorder={(ids) => actions.reorderLogEntries(dateIso, ids)}
             onRemove={(id) => actions.deleteLogEntry(id)}
-            onTitleClick={setEditingEntryId}
+            onTitleClick={handleTitleClick}
             emptyHint={
               past
                 ? 'Nothing recorded — ↻ pulls the Template in, or add a custom item below.'
@@ -190,6 +217,7 @@ export function TodayEditor({
           onClose={() => setEditingEntryId(null)}
         />
       )}
+      {editingBlock && <BlockModal data={data} actions={actions} editing={editingBlock} onClose={() => setEditingBlock(null)} />}
     </Modal>
   )
 }
