@@ -41,10 +41,18 @@ export function TodayEntryModal({
   const items = viewedEntries(data.logEntries, dateIso, past)
   const index = items.findIndex((e) => e.id === entryId)
   const entry = items[index]
+  // Block-sourced entries (materialized from the Template) carry their habit
+  // trace on the source Block, not the entry — checking them off mirrors via
+  // `toggleBlockLog`, which reads the Block's `habitId`, not this entry's own.
+  // Editing it here would be a no-op, so it's shown read-only; only entries
+  // with no source Block (blockId === null) own an editable trace (#24).
+  const blockHabit = entry?.blockId ? data.blocksByDow.flat().find((b) => b.id === entry.blockId) : null
+  const blockHabitName = blockHabit?.habitId ? data.habits.find((h) => h.id === blockHabit.habitId)?.name : null
 
   const [title, setTitle] = useState(entry?.text ?? '')
   // The Bucket is the taxonomy (ADR-0003); `cat` is stamped from it on save.
   const [bucketId, setBucketId] = useState(entry?.bucketId ?? '')
+  const [habitId, setHabitId] = useState(entry?.habitId ?? '')
   const [dur, setDur] = useState(entry?.durMin ?? 30)
   const [anchored, setAnchored] = useState(entry?.anchored ?? false)
   // Past entries are frozen (no reflow, #25): the stored start IS the
@@ -68,6 +76,7 @@ export function TodayEntryModal({
       text: title.trim() || '(untitled)',
       durMin: Math.max(5, dur || 30),
       anchored,
+      ...(!entry.blockId && { habitId: habitId || null }),
       ...(anchored && { startMin: parseTime(start) }),
     })
     onSaved?.(entry.id)
@@ -125,6 +134,25 @@ export function TodayEntryModal({
             onChange={(e) => setDur(parseInt(e.target.value, 10) || 0)}
           />
         </div>
+      </div>
+      <div className="field">
+        <label>Habit</label>
+        {entry.blockId ? (
+          <div className="hint" style={{ padding: 0, margin: 0 }}>
+            {blockHabitName
+              ? `🔥 Logs "${blockHabitName}" — set on the Template block, edit it there to change.`
+              : 'Not linked — set a habit on the Template block (Planner → edit day) to track this as a habit.'}
+          </div>
+        ) : (
+          <select value={habitId} onChange={(e) => setHabitId(e.target.value)}>
+            <option value="">None</option>
+            {data.habits.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div className="field">
         <label>Fixed start</label>

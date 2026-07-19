@@ -442,6 +442,7 @@ export interface PlannerActions {
         | 'onDate'
         | 'position'
         | 'migratedTo'
+        | 'habitId'
         | 'projectId'
         | 'sprintId'
         | 'durMin'
@@ -1017,6 +1018,7 @@ export function usePlannerActions(userId: string): PlannerActions {
           ...(fields.onDate !== undefined && { on_date: fields.onDate }),
           ...(fields.position !== undefined && { position: fields.position }),
           ...(fields.migratedTo !== undefined && { migrated_to: fields.migratedTo }),
+          ...(fields.habitId !== undefined && { habit_id: fields.habitId }),
           ...(fields.projectId !== undefined && { project_id: fields.projectId }),
           ...(fields.sprintId !== undefined && { sprint_id: fields.sprintId }),
           ...(fields.durMin !== undefined && { dur_min: fields.durMin }),
