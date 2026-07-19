@@ -9,6 +9,8 @@ const env = {
 
 export default defineConfig({
   testDir: 'e2e',
+  // agent.spec.ts / auth.setup.ts are authenticated-run only — see playwright.auth.config.ts
+  testIgnore: [/auth\.setup\.ts/, /agent\.spec\.ts/],
   use: { baseURL: 'http://localhost:5173' },
   webServer: {
     command: 'npm run dev',

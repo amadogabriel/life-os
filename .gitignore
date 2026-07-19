@@ -6,6 +6,7 @@ dev-dist
 *.local
 playwright-report
 test-results
+e2e/.auth
 .DS_Store
 *.tsbuildinfo
 .mcp.json
