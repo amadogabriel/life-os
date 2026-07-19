@@ -21,8 +21,42 @@ _Avoid_: schedule, routine
 **Block**:
 A single time-blocked item in a weekday Template (e.g. "Math — focused hour").
 Belongs to a Bucket (or is Unassigned), and carries a duration and anchoring for
-re-flow. A Block is a plan, not a record.
+re-flow. A Block is a plan, not a record. A Block is either a **Container** or
+**Concrete** (see below), independently of whether it is **Deep**.
 _Avoid_: event, task (those are Log Entry kinds)
+
+**Container**:
+A Block flagged to hold an **Agenda** of tasks rather than being its own content
+— a reserved chunk you fill per-day ("Engineering deep block", "Shallow batch").
+Container-ness is a per-Block flag, orthogonal to **Deep**: a Container may be
+deep (slot sprint work) or shallow (batch email/admin — Newport's shallow lane).
+The Template holds the Container **empty**; specific tasks are only ever added at
+the day layer, never baked into the Template.
+_Avoid_: placeholder (informal shorthand for an *empty* Container, not the entity)
+
+**Concrete**:
+A Block that **is** its own content — nothing is filled into it (Lunch, Commute,
+Workout). The opposite of a **Container**. Most Life/Routine Blocks are Concrete.
+
+**Agenda**:
+The ordered list of **Agenda items** inside a Container on one specific day.
+Agenda items carry an **order** (a `position`), never a per-task duration — you
+work them in priority order across the Container's single span; the Container is
+not sub-divided into timed mini-blocks. To collapse every Container's Agenda to
+just its header (deep and shallow alike), the Planner offers an **Agenda ↔
+Chunks** view toggle — display-only, and composes with the **Focus** toggle.
+
+**Agenda item**:
+A **Log Entry** added to ("filled into") a Container's Agenda on a given day — a
+**Dated one-off** parented to that Container (via `block_id`; see the collision
+note under Materialize). Its source is irrelevant: a Sprint card, a Backlog or
+Inbox card, or a freshly-typed ad-hoc one-off are all just Log Entries. Filling a
+Container never forks the day — the item rides on top of the projection. An
+unfinished Agenda item, in the **Migration ritual**, **un-fills** back to its
+Sprint (drops date + parent, Project link intact) to be re-decided another day;
+it never auto-carries into a future Container.
+_Avoid_: slot, slotted task (`slot` is taken — it means a timeline landing
+position: `scheduleSlot`, `reorderWithinSlots`), chip, todo
 
 **Re-flow**:
 The layout rule that lays a day's Blocks in `position` order without overlap; an
@@ -111,8 +145,23 @@ gray. Replaces the old `open` category.
 **Deep**:
 Per Bucket Task / Block / Log Entry flag marking deep work (▲). Deep work is
 rendered visually boosted over shallow; the weekly scoreboard counts deep
-sessions.
+sessions. Orthogonal to **Container**-ness: a deep session is a deep Block (a
+deep Container is one session — the block owns the hours, the Agenda is just what
+was attacked in it); a shallow Container never touches the deep scoreboard.
 _Avoid_: focus, hard
+
+**Depth/time lens**:
+The weekly-review view that answers "how deep was my week, and where did the
+hours go?" — hours + deep sessions grouped by **Bucket**, where each Block's
+hours belong to the **Block's own Bucket** (a Math Agenda item finished inside a
+Work Container still books a *Work* hour). The Block owns the time.
+
+**Throughput lens**:
+The complementary weekly-review view that answers "what project work actually
+shipped?" — task **completions** grouped by **Project / Sprint / Bucket**. An
+Agenda item's own Bucket/Project matters only here, on completion (that Math item
+= a *Math* completion). Kept separate from the **Depth/time lens** precisely
+because Agenda items have no duration to split hours by.
 
 ### Record (the past)
 
@@ -130,8 +179,16 @@ _Avoid_: todo, item
 **Materialize**:
 The daily freeze (at local midnight, Asia/Manila) that copies each planned Block
 for that weekday into the Daily Log as an **open** task Log Entry, capturing the
-Template as it stood that day. This is what turns an intention into a record.
+Template as it stood that day. A **Container** freezes into a **parent** Log
+Entry with its **Agenda items** as **child** Log Entries under it; an empty
+Container still freezes into a parent line (its reserved time survives). This is
+what turns an intention into a record.
 _Avoid_: generate, instantiate
+_Note — `block_id` is overloaded_: on a Log Entry it has meant "materialized
+**from** this Block" (1:1); it now *also* carries "Agenda item **under** this
+Container" (N:1). The parent line and its children share the same `block_id`, so
+they must be told apart by role, not by the column alone (mirrors the
+`position` / **Board position** split — see ADR-0006).
 
 **Migration ritual**:
 Reviewing a day's still-open Log Entries and deciding each one's fate: keep
