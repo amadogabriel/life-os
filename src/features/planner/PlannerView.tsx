@@ -56,6 +56,10 @@ export function PlannerView({ data, actions, today }: ViewProps) {
   // off; while on, drag-edit is suspended (the visible set is a filtered subset,
   // so drop-index math wouldn't line up with the full plan).
   const [focusCounted, setFocusCounted] = useState(false)
+  // Chunks view (#40): collapse every Container's Agenda to its header, keeping
+  // Concrete blocks visible. Display-only (writes nothing); composes
+  // independently with Focus.
+  const [chunks, setChunks] = useState(false)
   const [editing, setEditing] = useState<EditingBlock | null>(null)
   const [editingDay, setEditingDay] = useState<number | null>(null)
   const [editingFork, setEditingFork] = useState<string | null>(null) // ISO date of the fork being edited
@@ -411,6 +415,15 @@ export function PlannerView({ data, actions, today }: ViewProps) {
             {focusCounted ? '◆ Counted only' : '◇ Focus'}
           </button>
           <button
+            className="btn ghost min-h-[42px]"
+            aria-pressed={chunks}
+            title="Chunks: collapse every Container's Agenda to just its header (deep and shallow), keeping Concrete blocks visible. Display only."
+            onClick={() => setChunks((v) => !v)}
+            style={chunks ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+          >
+            {chunks ? '▬ Chunks' : '▤ Agenda'}
+          </button>
+          <button
             className="btn ghost min-h-[42px] min-w-[46px] text-[17px]"
             aria-label="Previous week"
             title="Previous week"
@@ -585,7 +598,7 @@ export function PlannerView({ data, actions, today }: ViewProps) {
                         </span>
                         <span className="d">{fmtDur(it.durMin)}</span>
                       </div>
-                      {it.container && it.agenda.length > 0 && (
+                      {it.container && it.agenda.length > 0 && !chunks && (
                         <ul className="agenda-mini">
                           {it.agenda.map((a) => (
                             <li key={a.entryId} className={a.state === 'done' ? 'done' : undefined}>
