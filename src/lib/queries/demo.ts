@@ -502,6 +502,17 @@ export function useDemoActions(): PlannerActions {
       })
       return id
     },
+    fillAgendaFromEntry: (entryId, blockId, dateIso) =>
+      mutate((d) => {
+        const agenda = agendaItems(d.logEntries, blockId, dateIso)
+        const position = agenda.reduce((m, e) => Math.max(m, e.position + 1), 0)
+        return {
+          ...d,
+          logEntries: d.logEntries.map((e) =>
+            e.id === entryId ? { ...e, onDate: dateIso, blockId, isAgendaItem: true, startMin: null, position } : e,
+          ),
+        }
+      }),
     updateLogEntry: (id, fields) =>
       mutate((d) => {
         const entry = d.logEntries.find((e) => e.id === id)

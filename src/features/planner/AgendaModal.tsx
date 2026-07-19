@@ -36,6 +36,22 @@ export function AgendaModal({
     await actions.addAgendaItem(blockId, dateIso, t)
   }
 
+  // Board cards fillable into this Agenda (#33): open task Log Entries not yet
+  // scheduled — Inbox / Backlog / Sprint cards (no block link, no timeline
+  // start, not already an Agenda item). Filling moves the SAME entry (no copy).
+  const candidates = data.logEntries.filter(
+    (e) => e.kind === 'task' && e.state === 'open' && !e.isAgendaItem && e.blockId === null && e.startMin === null,
+  )
+  function sourceLabel(projectId: string | null, sprintId: string | null): string {
+    if (sprintId) return data.sprints.find((s) => s.id === sprintId)?.name ?? 'Sprint'
+    if (projectId) return `${data.projects.find((p) => p.id === projectId)?.name ?? 'Project'} · Backlog`
+    return 'Inbox'
+  }
+  async function fillFrom(entryId: string) {
+    if (!entryId) return
+    await actions.fillAgendaFromEntry(entryId, blockId, dateIso)
+  }
+
   /** Move an Agenda item up/down in priority order (#34). Reuses
    *  reorderLogEntries → reorderWithinSlots: the agenda ids are permuted within
    *  their own position slots, so the day timeline and Board order are untouched. */
@@ -92,6 +108,25 @@ export function AgendaModal({
             )
           })}
         </ul>
+      )}
+      {candidates.length > 0 && (
+        <div className="field mt-2">
+          <label>Fill from a Sprint / Backlog / Inbox card (moves the card — no copy)</label>
+          <select
+            value=""
+            onChange={(e) => {
+              void fillFrom(e.target.value)
+              e.target.value = ''
+            }}
+          >
+            <option value="">Pick a card…</option>
+            {candidates.map((e) => (
+              <option key={e.id} value={e.id}>
+                [{sourceLabel(e.projectId, e.sprintId)}] {e.text}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
       <div className="field mt-2">
         <label>Add an ad-hoc task</label>

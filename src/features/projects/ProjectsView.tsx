@@ -128,6 +128,16 @@ function EntryCard({
       >
         {e.text}
       </span>
+      {/* Filled into a Container's Agenda (#33): the same card, spoken for. */}
+      {e.isAgendaItem && e.onDate && !done ? (
+        <span
+          className="text-[10px]"
+          title={`Scheduled into a chunk on ${e.onDate}`}
+          style={{ flex: 'none', color: 'var(--ink-faint)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}
+        >
+          ‹ scheduled {e.onDate.slice(5)}
+        </span>
+      ) : null}
       <button className="x" title="Delete" onPointerDown={(ev) => ev.stopPropagation()} onClick={() => onDelete(e.id)}>
         ✕
       </button>
@@ -252,7 +262,14 @@ export function ProjectsView({ data, actions, today }: ViewProps) {
   const projectById = new Map(data.projects.map((p) => [p.id, p]))
   const sprintTasks = data.logEntries.filter(
     (e) =>
-      e.kind === 'task' && e.state === 'open' && e.sprintId && activeSprintIds.has(e.sprintId) && e.startMin == null,
+      e.kind === 'task' &&
+      e.state === 'open' &&
+      e.sprintId &&
+      activeSprintIds.has(e.sprintId) &&
+      e.startMin == null &&
+      // Already filled into a Container's Agenda (#33) → spoken for, drop it
+      // from the "plan into your week" list (it shows as scheduled on the Board).
+      !e.isAgendaItem,
   )
 
   async function addProject() {

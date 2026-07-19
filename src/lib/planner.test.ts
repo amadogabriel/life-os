@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   agendaItems,
+  agendaView,
   applyBoardMove,
   blockLogRowsFromEntries,
   blockStyle,
@@ -1171,6 +1172,17 @@ describe('Container Agenda (#32 fill)', () => {
     // The two children collapse into the parent — not their own timeline items.
     expect(day.items.filter((i) => i.blockId === 'deepC')).toHaveLength(1)
     expect(day.items.some((i) => i.entryId === 'a1' || i.entryId === 'a2')).toBe(false)
+  })
+
+  it('fill from a card (#33): a filled Sprint card is the SAME entry in the Agenda, project/sprint preserved', () => {
+    // Modelling the fill result: the existing Sprint card entry gains on_date +
+    // block link + isAgendaItem, keeping its project/sprint (no copy).
+    const filled = entry({ id: 'card', onDate: '2026-07-16', blockId: 'deepC', isAgendaItem: true, text: 'Ship auth', projectId: 'p1', sprintId: 's1', position: 0 })
+    const got = agendaItems([filled], 'deepC', '2026-07-16')
+    expect(got.map((e) => e.id)).toEqual(['card']) // same entry, not a copy
+    const view = got.map(agendaView)[0]
+    expect(view.projectId).toBe('p1')
+    expect(view.sprintId).toBe('s1')
   })
 
   it('reorder (#34): permuting Agenda ids within their slots leaves a same-day timeline entry put', () => {

@@ -436,6 +436,12 @@ export interface PlannerActions {
    *  isAgendaItem), ordered at the end of that day's Agenda. Carries no
    *  start/duration (order, not time) and never forks the day. Returns its id. */
   addAgendaItem(blockId: string, dateIso: string, text: string): Promise<string>
+  /** Fill a Container's Agenda from an EXISTING Board card (#33): the same Log
+   *  Entry `entryId` gets `on_date` + the parent-Container link (block_id +
+   *  isAgendaItem), keeping its project_id/sprint_id — no second copy. It then
+   *  reads as "scheduled" on its Board while living in the Container's Agenda,
+   *  ordered at the end of that day's Agenda. */
+  fillAgendaFromEntry(entryId: string, blockId: string, dateIso: string): Promise<void>
   updateLogEntry(
     id: string,
     fields: Partial<
@@ -1033,6 +1039,28 @@ export function usePlannerActions(userId: string): PlannerActions {
       if (error) throw error
       await invalidate()
       return data.id
+    },
+
+    async fillAgendaFromEntry(entryId, blockId, dateIso) {
+      const cache = qc.getQueryData<PlannerData>(plannerKey)
+      const agenda = agendaItems(cache?.logEntries ?? [], blockId, dateIso)
+      const position = agenda.reduce((m, e) => Math.max(m, e.position + 1), 0)
+      // Optimistic: the SAME entry moves into the Agenda (project/sprint intact).
+      patch((data) => ({
+        ...data,
+        logEntries: data.logEntries.map((e) =>
+          e.id === entryId ? { ...e, onDate: dateIso, blockId, isAgendaItem: true, startMin: null, position } : e,
+        ),
+      }))
+      const { error } = await supabase
+        .from('log_entries')
+        .update({ on_date: dateIso, block_id: blockId, is_agenda_item: true, start_min: null, position, updated_at: new Date().toISOString() })
+        .eq('id', entryId)
+      if (error) {
+        invalidate()
+        throw error
+      }
+      await invalidate()
     },
 
     async updateLogEntry(id, fields) {
