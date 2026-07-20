@@ -6,6 +6,8 @@ import { TimelineEditor } from '../../components/TimelineEditor'
 import { BlockModal, type EditingBlock } from '../planner/BlockModal'
 import { TodayEntryModal } from './TodayEntryModal'
 
+
+
 /** The single "day plan" editing affordance: drag to reorder, drag the bottom
  *  edge to resize (mirrors DayEditor's feel for the weekday Template), tap a
  *  title to open its detail modal, drag or tap a bucket task chip to drop it
@@ -117,6 +119,17 @@ export function TodayEditor({
     })
   }
 
+  /** Add a genuinely new dated Block for this day (mirrors DayEditor's "+
+   *  Custom block") — the only way to get a fresh Container onto a specific
+   *  day, since `addItem`/`addFromChip` only ever create Block-less Log
+   *  Entries. Lazily forks the day first, same as `editSourceBlock`. */
+  async function addCustomBlock() {
+    const forkBlocks = data.dayForks[dateIso] ?? data.blocksByDow[dowOfIso(dateIso)] ?? []
+    if (!data.dayForks[dateIso]) await actions.forkDay(dateIso)
+    const id = await actions.addForkBlock(dateIso, forkBlocks.length)
+    setEditingBlock({ dow: dowOfIso(dateIso), blockId: id, forkDate: dateIso })
+  }
+
   /** In past mode, force the displayed anchor to `true` (pinned at stored
    *  start) until the user has explicitly saved this entry through the modal
    *  — the safety net that keeps opening a past day from silently reflowing
@@ -198,6 +211,11 @@ export function TodayEditor({
           <button className="addbucket shrink-0" onClick={addItem}>
             + Add item
           </button>
+          {!past && (
+            <button className="addbucket shrink-0" onClick={addCustomBlock}>
+              + Custom block (can be a Container)
+            </button>
+          )}
         </div>
       </div>
       <div className="mt-[14px] flex justify-end">
