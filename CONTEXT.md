@@ -136,7 +136,9 @@ shows it.
 **Counted**:
 A Bucket's flag saying its hours belong on the scoreboard. Uncounted Buckets
 (e.g. Life: sleep, meals, commute) never materialize into the record and never
-accrue hours.
+accrue hours — **except a Container always materializes** even from an uncounted
+Bucket (a Container batches shallow work, which is exactly what an uncounted
+Bucket like "Work" holds; it still accrues no counted hours). See migration 0023.
 
 **Unassigned**:
 A Block or Log Entry belonging to no Bucket — the "pick later" state, rendered
