@@ -41,6 +41,12 @@ export function TodayEditor({
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const [editingBlock, setEditingBlock] = useState<EditingBlock | null>(null)
   const [touchedIds, setTouchedIds] = useState<Set<string>>(new Set())
+  // A block just created by `addCustomBlock`, still not on this list (`items`
+  // is Log-primary — a bare Block has no citem until materialized). Freezing
+  // on the modal's close (not on creation) means the frozen entry captures
+  // the title/duration/Container the user actually saved, not the "New block
+  // — assign" placeholder.
+  const [freshBlockId, setFreshBlockId] = useState<string | null>(null)
   const items = viewedEntries(data.logEntries, dateIso, past)
 
   /** Open the full Bucket/Task/Detail/Deep/Habit editor (BlockModal, same as
@@ -127,7 +133,19 @@ export function TodayEditor({
     const forkBlocks = data.dayForks[dateIso] ?? data.blocksByDow[dowOfIso(dateIso)] ?? []
     if (!data.dayForks[dateIso]) await actions.forkDay(dateIso)
     const id = await actions.addForkBlock(dateIso, forkBlocks.length)
+    setFreshBlockId(id)
     setEditingBlock({ dow: dowOfIso(dateIso), blockId: id, forkDate: dateIso })
+  }
+
+  /** Closing the fresh block's editor (Save OR Cancel) is the trigger to
+   *  freeze it into today's Log — otherwise it stays invisible everywhere
+   *  until the next manual ↻. */
+  async function closeBlockEditor() {
+    setEditingBlock(null)
+    if (freshBlockId) {
+      setFreshBlockId(null)
+      await actions.materializeDay(dateIso)
+    }
   }
 
   /** In past mode, force the displayed anchor to `true` (pinned at stored
@@ -235,7 +253,7 @@ export function TodayEditor({
           onClose={() => setEditingEntryId(null)}
         />
       )}
-      {editingBlock && <BlockModal data={data} actions={actions} editing={editingBlock} onClose={() => setEditingBlock(null)} />}
+      {editingBlock && <BlockModal data={data} actions={actions} editing={editingBlock} onClose={closeBlockEditor} />}
     </Modal>
   )
 }
