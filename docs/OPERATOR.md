@@ -83,15 +83,19 @@ select user_id from profiles limit 1;
   it copies a date's Blocks — its Day Plan fork if one exists, else the
   weekday Template — into the Daily Log as **open** task `log_entries`,
   stamping `bucket_id`/`project_id`/`sprint_id`/`dur_min`/`deep` and a
-  resolve()-computed `start_min`/`anchored`. It freezes only blocks whose
-  Bucket is `counted` (or has no bucket — Unassigned still materializes); an
-  uncounted bucket (e.g. Life: sleep/meals/commute) never freezes. It is
+  resolve()-computed `start_min`/`anchored`. It freezes a block whose Bucket
+  is `counted` (or has no bucket — Unassigned still materializes) **or which is
+  a Container** (a Container always materializes, even from an uncounted bucket
+  — migration 0023); an uncounted, non-Container bucket (e.g. Life:
+  sleep/meals/commute) never freezes. It is
   idempotent and add-only (`on conflict do nothing` on `(user_id, block_id,
   on_date)`) — safe to call repeatedly, including for missed past days.
 - **Buckets are the taxonomy.** Blocks, Habits, and Log Entries all belong to
   a Bucket (or are Unassigned = no bucket, gray). A Bucket has a `color` and a
   **`counted`** flag: uncounted buckets (Life) never materialize and never hit
-  the scoreboard. `cat` still exists on every row but is **derived plumbing
+  the scoreboard — **except a Container always materializes** even from an
+  uncounted bucket (its hours still never hit the scoreboard). `cat` still
+  exists on every row but is **derived plumbing
   only** — stamped from the chosen bucket on write; never invent a new `cat`
   value or treat `cat` as authoritative for color/counting.
 - **Traces** (`habit_id` / `project_id` / `sprint_id` on `blocks` and
