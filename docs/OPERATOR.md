@@ -380,6 +380,30 @@ Sprints and returns its Log Entries to the Inbox (`project_id`/`sprint_id`
 both null); deleting a Sprint only clears `sprint_id` (task stays in that
 Project, drops to its Backlog).
 
+### Container fill rules — Sprint work → Agenda
+
+Canonical Containers (`blocks.container=true`) and their home Project (Work-bucket Containers
+only exist Mon–Thu, `dow` 0–3):
+
+| Container | Bucket | Home Project |
+|---|---|---|
+| Engineering and Development | Work | DevOps, Procurement Verifier |
+| Study | Work | Learn Measure Theory |
+| Busy Work | Work | Work Admin (first claim); Thesis/Measure Theory may spill in only when Work Admin's active Sprint is empty that day |
+| Parallel Computing | JUIST | De-slop Thesis Software |
+| Life OS | Personal Projects | Life OS |
+| Clear activities | WQU | School Admin |
+
+Meetings and every Chinese-bucket block stay Concrete on purpose — never fill Sprint tasks
+into them.
+
+Default agent-mode fill: one Agenda item per Container per day, priority-signifier-first then
+Board position, from the home Project's active Sprint — never blocks manually adding more in
+the app. An explicit "layout Sprint X" request instead lets the agent judge task size from its
+text (no stored difficulty field) and spread/stack across days accordingly. Measure Theory
+fills set `habit_id` directly on that Agenda item, never on the Study/Busy Work `bucket_tasks`
+row (which would wrongly trace every session to the math Habit).
+
 ### Notion — knowledge base + journal
 
 Notion holds the **reference layer** (there's no app-side integration — Claude
