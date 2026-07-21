@@ -308,7 +308,7 @@ export function TodayView({ data, actions, today }: ViewProps) {
                     className="cursor-pointer border-0 bg-transparent p-0 text-left"
                     title={isContainer ? 'Fill this Container’s Agenda' : 'Edit this entry'}
                     onClick={() => {
-                      if (isViewingToday && isContainer) {
+                      if (isContainer) {
                         setEditingAgenda({ blockId: e.blockId!, dateIso: viewedIso, title: e.text })
                         return
                       }
