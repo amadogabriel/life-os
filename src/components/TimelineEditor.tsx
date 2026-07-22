@@ -41,6 +41,7 @@ export function TimelineEditor({
   onTitleClick,
   onDropExternal,
   emptyHint = 'Tap a task chip (or drag it here) to add.',
+  newItemDurMin = 60,
   buckets,
 }: {
   items: TimelineItem[]
@@ -53,8 +54,13 @@ export function TimelineEditor({
   onReorder: (orderedIds: string[]) => void
   onRemove: (id: string) => void
   onTitleClick?: (id: string) => void
-  onDropExternal?: (payload: string, insertIdx: number) => void
+  /** `startMin` is the clock time under the drop, clamped into the open slot it
+   *  landed in so the new item never overlaps a neighbor (ADR-0007). */
+  onDropExternal?: (payload: string, insertIdx: number, startMin: number) => void
   emptyHint?: string
+  /** Duration assumed for an externally-dropped chip when clamping its dropped
+   *  start into a gap (matches the placed-chip default). */
+  newItemDurMin?: number
   /** Items resolve color LIVE per-item through their `bucketId` (see
    *  `blockStyle`) — kills first-bucket-wins; null bucket = Unassigned gray. */
   buckets: BucketColor[]
@@ -138,7 +144,9 @@ export function TimelineEditor({
       const ids = orderWith(id, at)
       if (ids.some((x, i) => x !== items[i]?.id)) onReorder(ids)
     } else {
-      onDropExternal?.(s, at)
+      // Land the chip at the clock time it was dropped on, clamped into the
+      // open slot there so it doesn't overlap a neighbor (ADR-0007).
+      onDropExternal?.(s, at, slotStart('', newItemDurMin, timeAt(e.clientY)))
     }
   }
 

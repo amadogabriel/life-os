@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"/Users/jongeneral/Downloads/planner-app\" 2>/dev/null || exit 0; BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); [ \"$BRANCH\" = \"main\" ] || exit 0; [ -z \"$(git status --porcelain)\" ] || exit 0; git fetch origin main -q 2>/dev/null || exit 0; git merge-base --is-ancestor origin/main HEAD 2>/dev/null && echo 'planner-app: main up to date' && exit 0; git pull --ff-only origin main -q 2>/dev/null && echo \"planner-app: pulled to $(git rev-parse --short HEAD)\" || true",
+            "statusMessage": "Checking planner-app for updates..."
+          }
+        ]
+      }
+    ]
+  }
+}

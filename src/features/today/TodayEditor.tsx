@@ -80,12 +80,13 @@ export function TodayEditor({
   function nextStartMin(): number {
     const resolved = resolve(items.map((e) => ({ ...e, startMin: e.startMin ?? 0, durMin: e.durMin ?? 30 })))
     const last = resolved[resolved.length - 1]
-    return last ? last.start + last.block.durMin : 480
+    return last ? last.start + last.block.durMin : 360 // 6:00am — first item on a blank day
   }
 
-  /** A dropped/tapped bucket task becomes an unanchored on-timeline entry —
-   *  it chains into wherever it landed, same as a Block dropped in DayEditor. */
-  async function addFromChip(bucketId: string, taskId: string): Promise<string | null> {
+  /** A dropped/tapped bucket task becomes an unanchored on-timeline entry — it
+   *  starts where it was dropped, else right after the last item (see
+   *  `nextStartMin`), same as a Block dropped in DayEditor. */
+  async function addFromChip(bucketId: string, taskId: string, startMin?: number): Promise<string | null> {
     const bucket = data.buckets.find((bk) => bk.id === bucketId)
     const task = bucket?.tasks.find((t) => t.id === taskId)
     if (!bucket || !task) return null
@@ -98,7 +99,7 @@ export function TodayEditor({
       bucketId: bucket.id,
       cat: bucket.cat,
       durMin: 60,
-      startMin: nextStartMin(),
+      startMin: startMin ?? nextStartMin(),
       anchored: false,
       // Carry the task's traces onto the entry so a check-off both logs the
       // habit (#24 — the entry-based mirror, since a directly-added entry has no
@@ -185,9 +186,9 @@ export function TodayEditor({
                 ? 'Nothing recorded — ↻ pulls the Template in, or add a custom item below.'
                 : 'Tap a task chip (or drag it here) to add — or add a custom item below.'
             }
-            onDropExternal={async (payload, at) => {
+            onDropExternal={async (payload, at, startMin) => {
               const [bk, task] = payload.split('|')
-              const id = await addFromChip(bk, task)
+              const id = await addFromChip(bk, task, startMin)
               if (id && at < items.length) {
                 const ids = items.map((e) => e.id)
                 ids.splice(at, 0, id)

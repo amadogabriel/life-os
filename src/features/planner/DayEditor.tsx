@@ -85,7 +85,14 @@ export function DayEditor({
     ? `⑂ ${data.days[dow].name.slice(0, 3)} ${new Date(`${activeFork}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · edit this day only`
     : `${data.days[dow].name} · edit day`
 
-  async function addFromChip(bucketId: string, taskId: string): Promise<string | null> {
+  /** Where a freshly-added chip starts when it isn't dropped at a specific time:
+   *  right after the day's last block, or 6am on a still-blank day. */
+  function defaultStart(): number {
+    if (blocks.length === 0) return 360 // 6:00am — first chip on a blank day
+    return Math.max(...blocks.map((b) => b.startMin + b.durMin))
+  }
+
+  async function addFromChip(bucketId: string, taskId: string, startMin?: number): Promise<string | null> {
     const bucket = data.buckets.find((bk) => bk.id === bucketId)
     const task = bucket?.tasks.find((t) => t.id === taskId)
     if (!bucket || !task) return null
@@ -94,8 +101,8 @@ export function DayEditor({
     // placedBlockFields records the source Bucket (`cat` is stamped derived
     // data) AND carries the task's Traces (#20/#21) onto the block, so the chip
     // is pre-linked: checking it off logs the habit, its entry accrues to the
-    // project.
-    await actions.updateBlock(id, placedBlockFields(bucket, task))
+    // project. Start it where it was dropped, else at the day's default slot.
+    await actions.updateBlock(id, { ...placedBlockFields(bucket, task), startMin: startMin ?? defaultStart() })
     return id
   }
 
@@ -111,9 +118,9 @@ export function DayEditor({
             onReorder={(ids) => reorderBlocks(ids)}
             onRemove={(id) => removeBlock(id)}
             onTitleClick={editBlock}
-            onDropExternal={async (payload, at) => {
+            onDropExternal={async (payload, at, startMin) => {
               const [bk, task] = payload.split('|')
-              const id = await addFromChip(bk, task)
+              const id = await addFromChip(bk, task, startMin)
               if (id && at < blocks.length) {
                 const ids = blocks.map((b) => b.id)
                 ids.splice(at, 0, id)
