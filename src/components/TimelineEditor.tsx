@@ -26,10 +26,12 @@ const snap = (mins: number) => Math.min(MAX_DUR, Math.max(MIN_DUR, Math.round(mi
  * Proportional day timeline (week-view-look blocks) with editing: drag a card
  * to retime it (its start moves where you drop it), drag its bottom edge to
  * resize in 30-min snaps, drag its top edge to move its start, − / ＋ / ✕ on
- * the card. Every block sits at its own concrete start (ADR-0007); resizes and
- * moves are bounded by neighbors so blocks never overlap, and any unclaimed
- * time between them renders as a Gap. External chips can be dropped anywhere;
- * the payload is passed through to `onDropExternal`.
+ * the card. Every block sits at its own concrete start (ADR-0007). The edited
+ * block wins its slot: when a move or resize runs into a neighbor, that
+ * neighbor is displaced — it slides away if it has room, else it shrinks
+ * against the chip beyond it, which holds still as a wall (ADR-0008; no
+ * cascade). Unclaimed time renders as a Gap. External chips can be dropped
+ * anywhere; the payload is passed through to `onDropExternal`.
  */
 export function TimelineEditor({
   items,
@@ -75,26 +77,88 @@ export function TimelineEditor({
     val: number
     startY: number
     orig: number
-    // Neighbor bounds (ADR-0007 — blocks never overlap): a resize stops at the
-    // adjacent block. 'end' → val (duration) is capped at `max`; 'start' → val
-    // (start time) is clamped to [`min`, `max`]. `min` is the previous block's
-    // end; `max` is the next block's start (minus this block's duration for a
-    // 'start' drag), or the day bound when there is no neighbor.
-    min: number
-    max: number
   } | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
+  // The live target of a pointer retime sits in a ref so pointerup never reads a
+  // stale render; `overIdx` state drives the re-render as it moves.
+  const moveRef = useRef<{ id: string; at: number; startMin: number } | null>(null)
 
-  // Each block sits at its own concrete start (ADR-0007) — a resize preview
-  // just overrides that block's duration or start; nothing else moves.
-  const live = items.map((it) =>
-    resizing?.id === it.id
-      ? resizing.mode === 'end'
-        ? { ...it, durMin: resizing.val }
-        : { ...it, startMin: resizing.val }
-      : it,
-  )
-  const layout = resolve(live)
+  /** Place block `id` at [start, start+dur] — the edited block always wins its
+   *  slot — then displace the one neighbor it runs into: that neighbor slides
+   *  away if it has room, else it shrinks against the chip beyond it, which
+   *  holds still as a wall (ADR-0008; no cascade past that wall). Returns the
+   *  full list with the mover (and at most one neighbor) retimed/resized. */
+  function pushLayout(id: string, start: number, dur: number): TimelineItem[] {
+    const self = items.find((x) => x.id === id)
+    if (!self) return items
+    dur = Math.max(MIN_DUR, Math.min(MAX_DUR, dur))
+    const oldStart = self.startMin
+    const oldEnd = oldStart + self.durMin
+    // A non-overlapping layout partitions cleanly into blocks wholly above and
+    // wholly below the edited one; nearest neighbor first.
+    const others = items.filter((x) => x.id !== id)
+    const below = others.filter((o) => o.startMin >= oldEnd).sort((a, b) => a.startMin - b.startMin)
+    const above = others.filter((o) => o.startMin + o.durMin <= oldStart).sort((a, b) => b.startMin - a.startMin)
+    const isResizeEnd = start === oldStart && dur !== self.durMin
+
+    let s = Math.max(0, Math.min(1439 - dur, start))
+    let e = s + dur
+    const changes = new Map<string, { startMin: number; durMin: number }>()
+
+    if (e > oldEnd && below.length) {
+      // Bottom edge advanced into the block below — push it down.
+      const B = below[0]
+      const wall = below[1] ? below[1].startMin : 1439
+      e = Math.min(e, wall - MIN_DUR) // leave the pushed neighbor at least MIN_DUR
+      if (!isResizeEnd) s = e - dur // a move keeps its duration; a bottom-resize keeps its top
+      if (e > B.startMin) {
+        const bEnd = Math.min(e + B.durMin, wall) // slides, or shrinks against the wall
+        changes.set(B.id, { startMin: e, durMin: bEnd - e })
+      }
+    } else if (s < oldStart && above.length) {
+      // Top edge retreated into the block above — push it up.
+      const B = above[0]
+      const wall = above[1] ? above[1].startMin + above[1].durMin : 0
+      s = Math.max(s, wall + MIN_DUR)
+      e = s + dur
+      if (s < B.startMin + B.durMin) {
+        const bStart = Math.max(s - B.durMin, wall)
+        changes.set(B.id, { startMin: bStart, durMin: s - bStart })
+      }
+    }
+
+    changes.set(id, { startMin: s, durMin: e - s })
+    return items.map((it) => {
+      const c = changes.get(it.id)
+      return c ? { ...it, startMin: c.startMin, durMin: c.durMin } : it
+    })
+  }
+
+  /** Persist a push edit: write the mover and any pushed neighbor (start and/or
+   *  duration). The neighbor's two fields go as sequential writes — the
+   *  optimistic cache merges by id, so both land. */
+  function commitEdit(id: string, start: number, dur: number) {
+    for (const it of pushLayout(id, start, dur)) {
+      const orig = items.find((o) => o.id === it.id)
+      if (!orig) continue
+      if (it.startMin !== orig.startMin) onSetStart?.(it.id, it.startMin)
+      if (it.durMin !== orig.durMin) onSetMins(it.id, it.durMin)
+    }
+  }
+
+  // Live preview: a resize shows the mover AND the neighbor it pushes. (A move
+  // previews via the insertion indicator, not a card-follow — repositioning the
+  // card mid-drag could shift `axisStart` and make the drag jumpy; the push
+  // lands on drop.)
+  let displayItems: TimelineItem[] = items
+  if (resizing) {
+    const cur = items.find((x) => x.id === resizing.id)
+    displayItems =
+      resizing.mode === 'end'
+        ? pushLayout(resizing.id, cur?.startMin ?? 0, resizing.val)
+        : pushLayout(resizing.id, resizing.val, cur?.durMin ?? MIN_DUR)
+  }
+  const layout = resolve(displayItems)
 
   const axisStart = layout.length ? Math.min(startAt ?? Infinity, layout[0].start) : (startAt ?? 300)
   const end = layout.length ? layout[layout.length - 1].start + layout[layout.length - 1].block.durMin : null
@@ -150,12 +214,10 @@ export function TimelineEditor({
     }
   }
 
-  // Dragging a card **retimes** it (ADR-0007, calendar-style) — its start moves
-  // to wherever it is dropped. Pointer-based (works on touch, where HTML5 DnD
-  // does not); the live target sits in a ref so pointerup never reads a stale
-  // render. Falls back to index reordering only when the surface has no start
-  // editing (`onSetStart` absent).
-  const moveRef = useRef<{ id: string; at: number; startMin: number } | null>(null)
+  // Dragging a card **retimes** it (calendar-style) — its start moves to
+  // wherever it is dropped and the block it lands on is pushed aside (ADR-0008).
+  // Pointer-based (works on touch, where HTML5 DnD does not). Falls back to
+  // index reordering only when the surface has no start editing (`onSetStart`).
   /** Snapped clock time under a pointer Y, clamped to the day. */
   function timeAt(clientY: number): number {
     const rect = bodyRef.current?.getBoundingClientRect()
@@ -209,17 +271,14 @@ export function TimelineEditor({
     if (!m) return
     if (onSetStart) {
       const it = items.find((x) => x.id === m.id)
-      if (it) {
-        const start = slotStart(m.id, it.durMin, m.startMin)
-        if (start !== it.startMin) onSetStart(m.id, start)
-      }
+      if (it && m.startMin !== it.startMin) commitEdit(m.id, m.startMin, it.durMin)
       return
     }
     const ids = orderWith(m.id, m.at)
     if (ids.some((x, i) => x !== items[i]?.id)) onReorder(ids)
   }
 
-  function startResize(e: PointerEvent, id: string, orig: number, mode: 'end' | 'start', min = 0, max = MAX_DUR) {
+  function startResize(e: PointerEvent, id: string, orig: number, mode: 'end' | 'start') {
     e.preventDefault()
     e.stopPropagation()
     try {
@@ -227,28 +286,30 @@ export function TimelineEditor({
     } catch {
       // pointer already gone (or synthetic) — resize still tracks while over the card
     }
-    setResizing({ id, mode, val: mode === 'end' ? snap(orig) : orig, startY: e.clientY, orig, min, max })
+    setResizing({ id, mode, val: mode === 'end' ? snap(orig) : orig, startY: e.clientY, orig })
   }
 
   function moveResize(e: PointerEvent) {
     if (!resizing) return
     const steps = Math.round((e.clientY - resizing.startY) / PXMIN / SNAP)
+    // The edited block wins its slot; a neighbor it grows into is displaced in
+    // pushLayout, so clamp only to day / duration bounds here.
     const val =
       resizing.mode === 'end'
-        ? // grow stops at the next block's top (`max`); never below MIN_DUR
-          Math.max(MIN_DUR, Math.min(resizing.max, snap(resizing.orig + steps * SNAP)))
-        : // move within [prev end, next block top − duration]
-          Math.max(resizing.min, Math.min(resizing.max, resizing.orig + steps * SNAP))
+        ? Math.max(MIN_DUR, Math.min(MAX_DUR, snap(resizing.orig + steps * SNAP)))
+        : Math.max(0, Math.min(1439, resizing.orig + steps * SNAP))
     if (val !== resizing.val) setResizing({ ...resizing, val })
   }
 
   function endResize() {
     if (!resizing) return
     const { id, mode, val, orig } = resizing
+    const it = items.find((x) => x.id === id)
     setResizing(null)
-    if (val === orig) return
-    if (mode === 'end') onSetMins(id, val)
-    else onSetStart?.(id, val)
+    if (val === orig || !it) return
+    // 'end' resizes the duration; 'start' translates (keeps duration).
+    if (mode === 'end') commitEdit(id, it.startMin, val)
+    else commitEdit(id, val, it.durMin)
   }
 
   const indicatorY =
@@ -326,7 +387,8 @@ export function TimelineEditor({
                     −
                   </button>
                   <span className="hrs">{fmtDur(it.durMin)}</span>
-                  <button title="30 min more" onClick={() => onSetMins(it.id, snap(it.durMin + SNAP))}>
+                  {/* ＋ grows the duration and pushes the block below (ADR-0008). */}
+                  <button title="30 min more" onClick={() => commitEdit(it.id, it.startMin, snap(it.durMin + SNAP))}>
                     ＋
                   </button>
                   <button className="x" title="Remove" onClick={() => onRemove(it.id)}>
@@ -344,17 +406,9 @@ export function TimelineEditor({
                     e.stopPropagation()
                   }}
                   onPointerDown={(e) =>
-                    // Move the start within its neighbors (ADR-0007): floor at
-                    // the previous block's end, ceiling at the next block's top
-                    // minus this block's duration (day bounds when no neighbor).
-                    startResize(
-                      e,
-                      it.id,
-                      start,
-                      'start',
-                      i > 0 ? layout[i - 1].start + layout[i - 1].block.durMin : 0,
-                      (i + 1 < layout.length ? layout[i + 1].start : 1439) - it.durMin,
-                    )
+                    // Retime the start; pushLayout displaces the block above if
+                    // this one moves up into it (ADR-0008).
+                    startResize(e, it.id, start, 'start')
                   }
                   onPointerMove={moveResize}
                   onPointerUp={endResize}
@@ -370,16 +424,9 @@ export function TimelineEditor({
                   e.stopPropagation()
                 }}
                 onPointerDown={(e) =>
-                  // Grow stops at the next block's top (ADR-0007) — to make room,
-                  // move that neighbor down instead.
-                  startResize(
-                    e,
-                    it.id,
-                    it.durMin,
-                    'end',
-                    0,
-                    i + 1 < layout.length ? layout[i + 1].start - start : MAX_DUR,
-                  )
+                  // Grow the duration; pushLayout displaces the block below if
+                  // this one grows down into it (ADR-0008).
+                  startResize(e, it.id, it.durMin, 'end')
                 }
                 onPointerMove={moveResize}
                 onPointerUp={endResize}
