@@ -68,8 +68,14 @@ export function DayEditor({
     return actions.updateBlock(mapId(id), fields)
   }
   const removeBlock = async (id: string) => {
-    await targetFork()
-    return actions.deleteBlock(mapId(id))
+    // X reads as "delete this block", not "fork this date": on an un-customized
+    // day (weekday Template or a still-projected future day) the block IS a
+    // Template block, so delete it there — it leaves that weekday everywhere.
+    // Only once the day is already a fork does deletion stay scoped to the
+    // fork's own copy. (Deliberate divergence from the fork-on-first-edit rule
+    // the other handlers follow — deleting shouldn't silently spawn a fork.)
+    if (activeFork) return actions.deleteBlock(mapId(id))
+    return actions.deleteBlock(id)
   }
   const editBlock = async (id: string) => {
     const fd = await targetFork()
