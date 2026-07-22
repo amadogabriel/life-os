@@ -688,35 +688,26 @@ export function pendingMaterializationDates(lastSeen: string | null, today: stri
 export interface Resolved<T> {
   block: T
   start: number
+  /** Vestigial: always false since ADR-0007 retired the anchored/overrun
+   *  conflict. Kept on the shape so the ~10 render call sites need no churn;
+   *  drop it in the same cleanup that drops the DB `anchored` columns. */
   conflict: boolean
 }
 
 /**
- * Lay out a day's blocks in order — blocks never overlap. Anchored blocks
- * start at their own time, which leaves a gap when the previous block ends
- * earlier; if the previous block runs past an anchor, the anchored block is
- * pushed down to the previous end (`conflict` marks that its pin wasn't
- * honored). Everything else flows immediately after the previous block.
+ * Lay out a day's blocks at their own **concrete** start times (ADR-0007).
+ * Each block sits exactly at its stored `startMin` — nothing chains, nothing is
+ * pushed — so the layout is identical whether the day is rendered live or as a
+ * frozen past record. Sorted by start; a stable tie-break keeps equal-start
+ * blocks in their input (position) order. `conflict` is always false: the old
+ * anchored/overrun conflict is retired, and the editor prevents overlaps at
+ * edit time (neighbor-bounded resize).
  */
-export function resolve<T extends { startMin: number; durMin: number; anchored: boolean }>(
-  blocks: T[],
-  startAt?: number,
-): Resolved<T>[] {
-  let cursor: number | null = startAt ?? null
-  const out: Resolved<T>[] = []
-  for (const b of blocks) {
-    let start: number
-    let conflict = false
-    if (b.anchored) {
-      start = cursor !== null ? Math.max(b.startMin, cursor) : b.startMin
-      conflict = start > b.startMin
-    } else {
-      start = cursor !== null ? cursor : b.startMin
-    }
-    out.push({ block: b, start, conflict })
-    cursor = start + b.durMin
-  }
-  return out
+export function resolve<T extends { startMin: number; durMin: number }>(blocks: T[]): Resolved<T>[] {
+  return blocks
+    .map((block, i) => ({ block, i }))
+    .sort((a, z) => a.block.startMin - z.block.startMin || a.i - z.i)
+    .map(({ block }) => ({ block, start: block.startMin, conflict: false }))
 }
 
 // ---------- "plan for date" resolver ----------
@@ -814,42 +805,32 @@ interface FrozenLayoutRow<T> {
 
 /**
  * Shared core behind `frozenPastItems` and `frozenPastEntries`: sort a day's
- * task entries by their stored freeze-time `start_min` (never re-chained via
- * `resolve()` — ADR-0002 amendment), drop placeholder rows (a blank title or
- * an explicit zero duration — a half-built Template block that froze empty),
- * and flag — without repositioning — any entry whose stored start overlaps
- * the previous one's span. Stable sort: input pre-sorted by position, so
- * equal starts keep their frozen record order.
+ * task entries by their stored `start_min` — each renders at its own concrete
+ * start, never re-chained (ADR-0007) — and drop placeholder rows (a blank title
+ * or an explicit zero duration — a half-built Template block that froze empty).
+ * Stable sort: input pre-sorted by position, so equal starts keep their frozen
+ * record order. (`conflict` is a vestigial always-false field — see `Resolved`.)
  */
 function frozenLayout<T extends { startMin: number | null; text: string; durMin: number | null }>(
   entries: T[],
 ): FrozenLayoutRow<T>[] {
-  const items = entries
+  return entries
     .filter((e) => e.startMin != null && e.text.trim() !== '' && e.durMin !== 0)
     .map((e) => ({ entry: e, start: e.startMin as number, conflict: false }))
     .sort((a, b) => a.start - b.start)
-  let prevEnd = -Infinity
-  for (const it of items) {
-    const dur = it.entry.durMin ?? DEFAULT_ENTRY_DUR
-    if (it.start < prevEnd) it.conflict = true
-    prevEnd = Math.max(prevEnd, it.start + dur)
-  }
-  return items
 }
 
 /**
  * The frozen-past lens: a materialized day laid out at each entry's **stored**
- * freeze-time `start_min` — the plan exactly as it was frozen — NOT re-flowed
- * (ADR-0002 amendment). A past day's entries already carry their resolved start
- * times and are not in position=time order, so running them back through
- * `resolve()` (as the live-timeline lenses do) would discard those starts,
- * re-chain everything, collapse the real gaps, and overflow past midnight.
+ * `start_min` — the plan exactly as it was frozen. This is the same concrete
+ * layout the live day uses (ADR-0007), so a day renders identically whether it
+ * is today or in the past; there is no re-flow to expose stale starts.
  *
  * Placeholder rows — a blank title or an explicit zero duration (a half-built
  * Template block that froze empty, filled in later) — are dropped; a titled
  * null-duration entry renders at the 30-min default. Items are sorted by clock
- * time; one overlapping the previous item in time is flagged `conflict`
- * (rendered with a collision tint) but never repositioned.
+ * time; overlaps are neither flagged nor repositioned (the editor prevents them
+ * at edit time).
  */
 export function frozenPastItems(entries: LogEntry[]): PlanItem[] {
   return frozenLayout(entries).map(({ entry: e, start, conflict }) => ({
@@ -875,8 +856,8 @@ export function frozenPastItems(entries: LogEntry[]): PlanItem[] {
  * state (id/state/habitId/bucketId/…) instead of `frozenPastItems`'s
  * trimmed, state-stripped `PlanItem` — the Today tab's pageable past-day
  * view (#25) needs the real record, not a plan summary. Same layout core:
- * sorted by stored start, never re-chained; overlaps flagged `conflict`,
- * never repositioned.
+ * sorted by stored start, never re-chained; each entry at its own concrete
+ * start (ADR-0007).
  *
  * Diverges from `onTimelineEntries` (today's live lens) on purpose: dropped
  * and migrated entries are INCLUDED, with their real state intact, so a past

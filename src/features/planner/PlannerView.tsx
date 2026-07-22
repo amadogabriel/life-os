@@ -594,7 +594,6 @@ export function PlannerView({ data, actions, today }: ViewProps) {
                         <span className="nm">
                           {it.container ? <span className="text-[9px] opacity-70">▤ </span> : null}
                           {it.title}
-                          {it.anchored ? <span className="text-[8px]"> 📌</span> : null}
                         </span>
                         <span className="d">{fmtDur(it.durMin)}</span>
                       </div>

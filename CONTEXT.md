@@ -20,8 +20,8 @@ _Avoid_: schedule, routine
 
 **Block**:
 A single time-blocked item in a weekday Template (e.g. "Math — focused hour").
-Belongs to a Bucket (or is Unassigned), and carries a duration and anchoring for
-re-flow. A Block is a plan, not a record. A Block is either a **Container** or
+Belongs to a Bucket (or is Unassigned), and carries a concrete start time and a
+duration (see **Layout**). A Block is a plan, not a record. A Block is either a **Container** or
 **Concrete** (see below), independently of whether it is **Deep**.
 _Avoid_: event, task (those are Log Entry kinds)
 
@@ -58,24 +58,28 @@ it never auto-carries into a future Container.
 _Avoid_: slot, slotted task (`slot` is taken — it means a timeline landing
 position: `scheduleSlot`, `reorderWithinSlots`), chip, todo
 
-**Re-flow**:
-The layout rule that lays a day's Blocks in `position` order without overlap; an
-**anchored** Block holds its pinned start time, an unanchored one chains off the
-previous Block's end. Re-flow never shrinks a Block: when an anchored Block's
-pinned start can't be honored, the Block is pushed later and marked in
-**conflict**.
+**Layout**:
+Every Block holds its own **concrete start time** and duration; the timeline
+renders each Block exactly where its stored start says, identically whether the
+day is today or in the past. Blocks **never overlap** — the editor bounds every
+resize by its neighbors (dragging a Block's edge stops at the adjacent Block; to
+grow into a neighbor you explicitly shrink or move that neighbor). There is no
+chaining, no anchoring, and no re-flow: a Block does not move because another
+Block changed. Superseded the old anchored/unanchored **re-flow** model (see the
+ADR superseding ADR-0002).
+_Avoid_: re-flow, anchor, anchored, conflict (all retired).
 
 **Gap**:
-The empty span between one Block's end and the next Block's start. Derived, not
-stored — a Gap is the absence of a Block, never an entity. Because unanchored
-Blocks chain, a Gap can only exist in front of an anchored Block (or between the
-day's start and an anchored first Block).
+The empty span between one Block's end and the next Block's start — unclaimed
+time. Derived, not stored — a Gap is the absence of a Block, never an entity.
+Since every Block carries a concrete start, a Gap can open **anywhere** two
+adjacent Blocks don't touch (no longer tied to anchoring).
 _Avoid_: open block, open time (and "open" is a retired category name)
 
 **Planner**:
 The dated-weeks view (formerly "Week"). Plan-side in both directions: past days
 show the plan as it was frozen — rendered at each entry's stored freeze-time
-start, **not** re-flowed (ADR-0002 amendment) — future days show the Template
+start (the same concrete-**Layout** rule as every other day) — future days show the Template
 **projected** onto real dates plus any Day Plan forks and dated one-offs. A
 Planner-wide **Focus** toggle can hide uncounted (Life) items. Paging it writes
 nothing. Clicking into the cell for the live current day opens the Today
@@ -94,8 +98,9 @@ viewed day. On the actual current day it's the live, editable timeline
 (unchanged); on a past day it's that day's Daily Log through the frozen-past
 lens with full state (`frozenPastEntries`) — dropped/migrated entries stay
 visible and actionable — opened for structural editing (retime, resize,
-reorder, add, delete) with every entry pinned at its stored start until
-explicitly un-anchored, so opening it never silently reflows history.
+reorder, add, delete). Every entry renders at its own stored start (concrete
+**Layout**), so opening a day never moves anything — the render is identical to
+how the day looked live.
 _Avoid_: today's plan (the card within it, not the tab)
 
 **Day Plan (fork)**:

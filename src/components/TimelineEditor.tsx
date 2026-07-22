@@ -24,10 +24,12 @@ const snap = (mins: number) => Math.min(MAX_DUR, Math.max(MIN_DUR, Math.round(mi
 
 /**
  * Proportional day timeline (week-view-look blocks) with editing: drag a card
- * to reorder, drag its bottom edge to resize in 30-min snaps, drag its top
- * edge to move (and pin) its start, − / ＋ / ✕ on the card. Gaps before
- * anchored items render as open space. External chips can be dropped
- * anywhere; the payload is passed through to `onDropExternal`.
+ * to retime it (its start moves where you drop it), drag its bottom edge to
+ * resize in 30-min snaps, drag its top edge to move its start, − / ＋ / ✕ on
+ * the card. Every block sits at its own concrete start (ADR-0007); resizes and
+ * moves are bounded by neighbors so blocks never overlap, and any unclaimed
+ * time between them renders as a Gap. External chips can be dropped anywhere;
+ * the payload is passed through to `onDropExternal`.
  */
 export function TimelineEditor({
   items,
@@ -44,9 +46,9 @@ export function TimelineEditor({
   items: TimelineItem[]
   startAt?: number
   onSetMins: (id: string, mins: number) => void
-  /** When given, every card gets a top handle that moves its start time.
-   *  Callers must write `anchored: true` alongside the new start — the drag
-   *  pins the block (a Gap only exists in front of an anchored block). */
+  /** When given, cards can be retimed: dragging the card body or its top handle
+   *  writes the block's new concrete start (ADR-0007). Absent → cards reorder by
+   *  index instead. */
   onSetStart?: (id: string, startMin: number) => void
   onReorder: (orderedIds: string[]) => void
   onRemove: (id: string) => void
@@ -67,22 +69,26 @@ export function TimelineEditor({
     val: number
     startY: number
     orig: number
-    // Floor for 'start' drags: the previous block's end (0 for the first
-    // block) — a drag can never set a pin that re-flow would dishonor.
+    // Neighbor bounds (ADR-0007 — blocks never overlap): a resize stops at the
+    // adjacent block. 'end' → val (duration) is capped at `max`; 'start' → val
+    // (start time) is clamped to [`min`, `max`]. `min` is the previous block's
+    // end; `max` is the next block's start (minus this block's duration for a
+    // 'start' drag), or the day bound when there is no neighbor.
     min: number
+    max: number
   } | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
-  // A 'start' drag previews as anchored so the gap it opens renders live even
-  // when the block is still unanchored (releasing the drag pins it).
+  // Each block sits at its own concrete start (ADR-0007) — a resize preview
+  // just overrides that block's duration or start; nothing else moves.
   const live = items.map((it) =>
     resizing?.id === it.id
       ? resizing.mode === 'end'
         ? { ...it, durMin: resizing.val }
-        : { ...it, startMin: resizing.val, anchored: true }
+        : { ...it, startMin: resizing.val }
       : it,
   )
-  const layout = resolve(live, startAt)
+  const layout = resolve(live)
 
   const axisStart = layout.length ? Math.min(startAt ?? Infinity, layout[0].start) : (startAt ?? 300)
   const end = layout.length ? layout[layout.length - 1].start + layout[layout.length - 1].block.durMin : null
@@ -136,9 +142,37 @@ export function TimelineEditor({
     }
   }
 
-  // Card moving is pointer-based (works on touch, where HTML5 DnD does not).
-  // The live values sit in a ref so pointerup never reads a stale render.
-  const moveRef = useRef<{ id: string; at: number } | null>(null)
+  // Dragging a card **retimes** it (ADR-0007, calendar-style) — its start moves
+  // to wherever it is dropped. Pointer-based (works on touch, where HTML5 DnD
+  // does not); the live target sits in a ref so pointerup never reads a stale
+  // render. Falls back to index reordering only when the surface has no start
+  // editing (`onSetStart` absent).
+  const moveRef = useRef<{ id: string; at: number; startMin: number } | null>(null)
+  /** Snapped clock time under a pointer Y, clamped to the day. */
+  function timeAt(clientY: number): number {
+    const rect = bodyRef.current?.getBoundingClientRect()
+    const y = rect ? clientY - rect.top : PAD
+    const mins = axisStart + (y - PAD) / PXMIN
+    return Math.max(0, Math.min(1439, Math.round(mins / SNAP) * SNAP))
+  }
+  /** Clamp a retimed start into the gap it's dropped into so the block never
+   *  overlaps a neighbor (ADR-0007). Walks the other blocks in start order:
+   *  anything ending before the drop raises the floor, the first block at/after
+   *  it sets the ceiling (minus this block's duration). */
+  function slotStart(id: string, dur: number, desired: number): number {
+    let lo = 0
+    let hi = 1439 - dur
+    for (const { block: o } of layout) {
+      if (o.id === id) continue
+      const oEnd = o.startMin + o.durMin
+      if (o.startMin >= desired) {
+        hi = Math.min(hi, o.startMin - dur)
+        break
+      }
+      if (oEnd > lo) lo = oEnd // ends before the drop (or straddles it) → floor
+    }
+    return Math.min(Math.max(desired, lo), Math.max(lo, hi))
+  }
   function startMove(e: PointerEvent, id: string) {
     e.preventDefault()
     e.stopPropagation()
@@ -147,7 +181,7 @@ export function TimelineEditor({
     } catch {
       // pointer already gone (or synthetic) — dragging still works while over the list
     }
-    moveRef.current = { id, at: insertIdxAt(e.clientY) }
+    moveRef.current = { id, at: insertIdxAt(e.clientY), startMin: timeAt(e.clientY) }
     setDragId(id)
     setOverIdx(moveRef.current.at)
   }
@@ -155,6 +189,7 @@ export function TimelineEditor({
   function moveMove(e: PointerEvent) {
     if (!moveRef.current) return
     moveRef.current.at = insertIdxAt(e.clientY)
+    moveRef.current.startMin = timeAt(e.clientY)
     setOverIdx(moveRef.current.at)
   }
 
@@ -164,11 +199,19 @@ export function TimelineEditor({
     setDragId(null)
     setOverIdx(null)
     if (!m) return
+    if (onSetStart) {
+      const it = items.find((x) => x.id === m.id)
+      if (it) {
+        const start = slotStart(m.id, it.durMin, m.startMin)
+        if (start !== it.startMin) onSetStart(m.id, start)
+      }
+      return
+    }
     const ids = orderWith(m.id, m.at)
     if (ids.some((x, i) => x !== items[i]?.id)) onReorder(ids)
   }
 
-  function startResize(e: PointerEvent, id: string, orig: number, mode: 'end' | 'start', min = 0) {
+  function startResize(e: PointerEvent, id: string, orig: number, mode: 'end' | 'start', min = 0, max = MAX_DUR) {
     e.preventDefault()
     e.stopPropagation()
     try {
@@ -176,7 +219,7 @@ export function TimelineEditor({
     } catch {
       // pointer already gone (or synthetic) — resize still tracks while over the card
     }
-    setResizing({ id, mode, val: mode === 'end' ? snap(orig) : orig, startY: e.clientY, orig, min })
+    setResizing({ id, mode, val: mode === 'end' ? snap(orig) : orig, startY: e.clientY, orig, min, max })
   }
 
   function moveResize(e: PointerEvent) {
@@ -184,8 +227,10 @@ export function TimelineEditor({
     const steps = Math.round((e.clientY - resizing.startY) / PXMIN / SNAP)
     const val =
       resizing.mode === 'end'
-        ? snap(resizing.orig + steps * SNAP)
-        : Math.max(resizing.min, Math.min(1439 - SNAP, resizing.orig + steps * SNAP))
+        ? // grow stops at the next block's top (`max`); never below MIN_DUR
+          Math.max(MIN_DUR, Math.min(resizing.max, snap(resizing.orig + steps * SNAP)))
+        : // move within [prev end, next block top − duration]
+          Math.max(resizing.min, Math.min(resizing.max, resizing.orig + steps * SNAP))
     if (val !== resizing.val) setResizing({ ...resizing, val })
   }
 
@@ -222,7 +267,7 @@ export function TimelineEditor({
           {fmt(mm)}
         </div>
       ))}
-      {layout.map(({ block: it, start, conflict }, i) => {
+      {layout.map(({ block: it, start }, i) => {
         const prevEnd = i > 0 ? layout[i - 1].start + layout[i - 1].block.durMin : startAt ?? null
         const gap = prevEnd !== null && start > prevEnd ? start - prevEnd : 0
         const hpx = Math.round(it.durMin * PXMIN)
@@ -237,7 +282,6 @@ export function TimelineEditor({
               className={
                 `tlcard s-${it.cat}` +
                 depthClass(it.deep ?? false) +
-                (conflict ? ' conflict' : '') +
                 (dragId === it.id ? ' dragging' : '') +
                 (hpx <= 40 ? ' compact' : '')
               }
@@ -261,17 +305,13 @@ export function TimelineEditor({
                 {onTitleClick ? (
                   <button
                     className="title cursor-pointer border-0 bg-transparent p-0 text-left"
-                    title="Edit details (label, notes, anchor)"
+                    title="Edit details (label, notes)"
                     onClick={() => onTitleClick(it.id)}
                   >
                     {it.title}
-                    {it.anchored ? <span className="text-[9px]"> 📌</span> : null}
                   </button>
                 ) : (
-                  <span className="title">
-                    {it.title}
-                    {it.anchored ? <span className="text-[9px]"> 📌</span> : null}
-                  </span>
+                  <span className="title">{it.title}</span>
                 )}
                 <div className="stp">
                   <button title="30 min less" onClick={() => onSetMins(it.id, snap(it.durMin - SNAP))}>
@@ -289,21 +329,24 @@ export function TimelineEditor({
               {onSetStart && (
                 <div
                   className="rzt"
-                  title={
-                    it.anchored
-                      ? 'Drag to shift the pinned start time (30-min steps)'
-                      : 'Drag to move the start time — pins the block (30-min steps)'
-                  }
+                  title="Drag to move the start time (30-min steps)"
                   draggable={false}
                   onDragStart={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
                   }}
                   onPointerDown={(e) =>
-                    // Drag from the resolved start (an unanchored block's stored
-                    // startMin is stale); floor at the previous block's end (Gap
-                    // rule), day bounds for the first block.
-                    startResize(e, it.id, start, 'start', i > 0 ? layout[i - 1].start + layout[i - 1].block.durMin : 0)
+                    // Move the start within its neighbors (ADR-0007): floor at
+                    // the previous block's end, ceiling at the next block's top
+                    // minus this block's duration (day bounds when no neighbor).
+                    startResize(
+                      e,
+                      it.id,
+                      start,
+                      'start',
+                      i > 0 ? layout[i - 1].start + layout[i - 1].block.durMin : 0,
+                      (i + 1 < layout.length ? layout[i + 1].start : 1439) - it.durMin,
+                    )
                   }
                   onPointerMove={moveResize}
                   onPointerUp={endResize}
@@ -318,7 +361,18 @@ export function TimelineEditor({
                   e.preventDefault()
                   e.stopPropagation()
                 }}
-                onPointerDown={(e) => startResize(e, it.id, it.durMin, 'end')}
+                onPointerDown={(e) =>
+                  // Grow stops at the next block's top (ADR-0007) — to make room,
+                  // move that neighbor down instead.
+                  startResize(
+                    e,
+                    it.id,
+                    it.durMin,
+                    'end',
+                    0,
+                    i + 1 < layout.length ? layout[i + 1].start - start : MAX_DUR,
+                  )
+                }
                 onPointerMove={moveResize}
                 onPointerUp={endResize}
                 onPointerCancel={() => setResizing(null)}

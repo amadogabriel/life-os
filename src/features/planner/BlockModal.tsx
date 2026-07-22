@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
 import { Modal } from '../../components/Modal'
-import { fmt, parseTime, resolve, type Cat } from '../../lib/planner'
+import { fmt, parseTime, type Cat } from '../../lib/planner'
 
 export interface EditingBlock {
   dow: number
@@ -41,12 +41,11 @@ export function BlockModal({
   const [title, setTitle] = useState(block?.title ?? '')
   const [detail, setDetail] = useState(block?.detail ?? '')
   const [dur, setDur] = useState(block?.durMin ?? 30)
-  const [anchored, setAnchored] = useState(block?.anchored ?? false)
   const [deep, setDeep] = useState(block?.deep ?? false)
   const [container, setContainer] = useState(block?.container ?? false)
   const [habitId, setHabitId] = useState(block?.habitId ?? '')
-  const resolvedStart = index >= 0 ? resolve(blocks)[index].start : 0
-  const [start, setStart] = useState(fmt(block?.anchored ? block.startMin : resolvedStart))
+  // Concrete start (ADR-0007) — directly editable, no anchoring.
+  const [start, setStart] = useState(fmt(block?.startMin ?? 0))
 
   if (!block) return null
   const bucket = data.buckets.find((bk) => bk.id === bucketId)
@@ -62,11 +61,10 @@ export function BlockModal({
       title: title.trim() || '(untitled)',
       detail: detail.trim(),
       durMin: Math.max(5, dur || 30),
-      anchored,
       deep,
       container,
       habitId: habitId || null,
-      ...(anchored && { startMin: parseTime(start) }),
+      startMin: parseTime(start),
     })
     onClose()
   }
@@ -136,20 +134,10 @@ export function BlockModal({
           />
         </div>
         <div className="field">
-          <label>Fixed start</label>
-          <input
-            type="time"
-            step={300}
-            value={start}
-            disabled={!anchored}
-            onChange={(e) => setStart(e.target.value)}
-          />
+          <label>Start</label>
+          <input type="time" step={300} value={start} onChange={(e) => setStart(e.target.value)} />
         </div>
       </div>
-      <label className="check">
-        <input type="checkbox" checked={anchored} onChange={(e) => setAnchored(e.target.checked)} /> 📌
-        Fixed start time (anchor — won't shift)
-      </label>
       <label className="check">
         <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} /> ▲ Deep work
         (rendered saturated; shallow is muted)

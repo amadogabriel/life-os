@@ -270,35 +270,32 @@ describe('weekRange', () => {
   })
 })
 
-describe('resolve (block re-flow)', () => {
-  it('flows unanchored blocks after the previous block', () => {
+describe('resolve (concrete layout, ADR-0007)', () => {
+  it('places each block at its own stored start — nothing chains', () => {
     const res = resolve([
-      b({ id: 'a', startMin: 300, durMin: 60, anchored: true }),
-      b({ id: 'x', startMin: 0, durMin: 30 }),
-      b({ id: 'y', startMin: 0, durMin: 45 }),
+      b({ id: 'a', startMin: 300, durMin: 60 }),
+      b({ id: 'x', startMin: 360, durMin: 30 }),
+      b({ id: 'y', startMin: 480, durMin: 45 }),
     ])
-    expect(res.map((r) => r.start)).toEqual([300, 360, 390])
+    expect(res.map((r) => r.start)).toEqual([300, 360, 480])
+    expect(res.every((r) => !r.conflict)).toBe(true) // conflict is retired
+  })
+  it('sorts by start, stable on ties (input/position order wins)', () => {
+    const res = resolve([
+      b({ id: 'late', startMin: 780, durMin: 30 }),
+      b({ id: 'dawn', startMin: 360, durMin: 30 }),
+      b({ id: 'tieA', startMin: 360, durMin: 30 }),
+    ])
+    expect(res.map((r) => r.block.id)).toEqual(['dawn', 'tieA', 'late'])
+  })
+  it('preserves gaps and never flags overlaps (the editor prevents them at edit time)', () => {
+    const res = resolve([
+      b({ id: 'a', startMin: 300, durMin: 30 }),
+      b({ id: 'b2', startMin: 480, durMin: 30 }), // gap 05:30–08:00
+      b({ id: 'c', startMin: 495, durMin: 30 }), // overlaps b2 — still not flagged
+    ])
+    expect(res.map((r) => r.start)).toEqual([300, 480, 495])
     expect(res.every((r) => !r.conflict)).toBe(true)
-  })
-  it('anchored blocks overrun by the previous block are pushed down, never overlapped', () => {
-    const res = resolve([
-      b({ id: 'a', startMin: 300, durMin: 120, anchored: true }),
-      b({ id: 'c', startMin: 360, durMin: 30, anchored: true }), // pinned before a ends
-    ])
-    expect(res[1].start).toBe(420) // pushed to a's end
-    expect(res[1].conflict).toBe(true) // pin not honored — flagged
-  })
-  it('anchored blocks keep a gap when the previous block ends earlier', () => {
-    const res = resolve([
-      b({ id: 'a', startMin: 300, durMin: 30, anchored: true }),
-      b({ id: 'c', startMin: 480, durMin: 30, anchored: true }),
-    ])
-    expect(res[1].start).toBe(480) // gap 05:30–08:00 preserved
-    expect(res[1].conflict).toBe(false)
-  })
-  it('first unanchored block uses its own startMin', () => {
-    const res = resolve([b({ id: 'a', startMin: 420, durMin: 30 })])
-    expect(res[0].start).toBe(420)
   })
 })
 
@@ -673,17 +670,15 @@ describe('frozenPastItems — the frozen-past lens (ADR-0002 amendment)', () => 
     expect(items.find((i) => i.entryId === 'idea')!.durMin).toBe(30)
   })
 
-  it('flags — but does not reflow — a block overlapping the previous one', () => {
+  it('renders every entry at its true stored start, sorted, without reflow or flags', () => {
     const items = frozenPastItems([
       entry({ id: 'span', text: 'Long block', startMin: 480, durMin: 180 }), // 08:00–11:00
-      entry({ id: 'inside', text: 'Pinned inside', startMin: 600, durMin: 30 }), // 10:00–10:30
+      entry({ id: 'inside', text: 'Overlapping', startMin: 600, durMin: 30 }), // 10:00–10:30
       entry({ id: 'after', text: 'Clear', startMin: 720, durMin: 60 }), // 12:00–13:00
     ])
     const by = Object.fromEntries(items.map((i) => [i.entryId, i]))
-    expect(by.span.conflict).toBe(false)
-    expect(by.inside.conflict).toBe(true) // overlaps the still-running span
     expect(by.inside.start).toBe(600) // true time, not pushed down
-    expect(by.after.conflict).toBe(false)
+    expect(items.every((i) => !i.conflict)).toBe(true) // conflict retired (ADR-0007)
   })
 
   it('excludes entries with no start time (rapid-log todos are not on the timeline)', () => {
@@ -719,18 +714,17 @@ describe('frozenPastEntries — the frozen-past lens with full record state (#25
     expect(rows.find((r) => r.block.id === 'idea')!.block.durMin).toBe(30)
   })
 
-  it('flags — but does not reflow — an entry overlapping the previous one', () => {
+  it('renders each entry at its true stored start, without reflow or flags', () => {
     const rows = frozenPastEntries(
       [
         entry({ id: 'span', onDate: dateIso, text: 'Long block', startMin: 480, durMin: 180 }),
-        entry({ id: 'inside', onDate: dateIso, text: 'Pinned inside', startMin: 600, durMin: 30 }),
+        entry({ id: 'inside', onDate: dateIso, text: 'Overlapping', startMin: 600, durMin: 30 }),
       ],
       dateIso,
     )
     const by = Object.fromEntries(rows.map((r) => [r.block.id, r]))
-    expect(by.span.conflict).toBe(false)
-    expect(by.inside.conflict).toBe(true)
     expect(by.inside.start).toBe(600) // true time, not pushed down
+    expect(rows.every((r) => !r.conflict)).toBe(true) // conflict retired (ADR-0007)
   })
 
   it('excludes entries with no start time and entries from other dates/kinds', () => {
@@ -788,10 +782,10 @@ describe('frozenPastEntries — the frozen-past lens with full record state (#25
 describe('planForDate', () => {
   const todayIso = '2026-07-15' // a Wednesday
   const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
-  // Thursday Template: an anchored deep block, then a chained shallow one
+  // Thursday Template: a deep block, then a shallow one right after (concrete starts)
   blocksByDow[3] = [
     b({ id: 'anchor', dow: 3, position: 0, title: 'Deep math', cat: 'math', startMin: 540, durMin: 90, anchored: true, deep: true }),
-    b({ id: 'chain', dow: 3, position: 1, title: 'Email batch', cat: 'work', startMin: 0, durMin: 30 }),
+    b({ id: 'chain', dow: 3, position: 1, title: 'Email batch', cat: 'work', startMin: 630, durMin: 30 }),
   ]
   const logEntries: LogEntry[] = [
     // Monday Jul 13 — a materialized (frozen) day
@@ -804,7 +798,7 @@ describe('planForDate', () => {
     // Wednesday Jul 15 (today) — the live plan
     entry({ id: 't1', onDate: todayIso, text: 'Live block', cat: 'work', startMin: 480, durMin: 60, state: 'open', position: 0 }),
     entry({ id: 't2', onDate: todayIso, text: 'Dropped today', startMin: 540, durMin: 30, state: 'dropped', position: 1 }),
-    entry({ id: 't3', onDate: todayIso, text: 'Chained today', cat: 'math', startMin: 0, durMin: null, state: 'open', position: 2 }),
+    entry({ id: 't3', onDate: todayIso, text: 'Later today', cat: 'math', startMin: 540, durMin: null, state: 'open', position: 2 }),
   ]
   const input = { blocksByDow, logEntries }
 
@@ -856,12 +850,12 @@ describe('planForDate', () => {
     expect(day.source).toBe('today')
     // same lens as onTimelineEntries: dropped/migrated excluded
     expect(day.items.map((i) => i.entryId)).toEqual(['t1', 't3'])
-    expect(day.items.map((i) => i.start)).toEqual([480, 540]) // chained off the first
+    expect(day.items.map((i) => i.start)).toEqual([480, 540]) // each at its own concrete start
     // today never renders the weekday Template, even though Wednesday has none here
     expect(day.items.every((i) => i.entryId !== null)).toBe(true)
   })
 
-  it('future day → the weekday Template projected onto the date, laid out by re-flow', () => {
+  it('future day → the weekday Template projected onto the date, at concrete starts', () => {
     const day = planForDate(input, '2026-07-16', todayIso) // Thursday
     expect(day.source).toBe('projection')
     expect(day.items.map((i) => i.blockId)).toEqual(['anchor', 'chain'])
@@ -876,15 +870,15 @@ describe('planForDate', () => {
     expect(day.items).toEqual([])
   })
 
-  it('projection re-flow flags an overrun anchor as a conflict', () => {
+  it('projection renders blocks at their own concrete starts, never flagged', () => {
     const bd: Block[][] = Array.from({ length: 7 }, () => [])
     bd[3] = [
-      b({ id: 'a', dow: 3, position: 0, startMin: 540, durMin: 120, anchored: true }),
-      b({ id: 'c', dow: 3, position: 1, startMin: 600, durMin: 30, anchored: true }), // pinned before a ends
+      b({ id: 'a', dow: 3, position: 0, startMin: 540, durMin: 120 }),
+      b({ id: 'c', dow: 3, position: 1, startMin: 720, durMin: 30 }),
     ]
     const day = planForDate({ blocksByDow: bd, logEntries: [] }, '2026-07-16', todayIso)
-    expect(day.items[1].start).toBe(660)
-    expect(day.items[1].conflict).toBe(true)
+    expect(day.items.map((i) => i.start)).toEqual([540, 720])
+    expect(day.items.every((i) => !i.conflict)).toBe(true)
   })
 
   // Day Plan forks (slice #14): a future date with a fork resolves from the
@@ -895,14 +889,14 @@ describe('planForDate', () => {
       '2026-07-16': [
         // Thursday's Template has 'anchor'/'chain' — the fork replaces them wholesale
         b({ id: 'f1', dow: 3, position: 0, title: 'Fork deep block', cat: 'thesis', startMin: 600, durMin: 120, anchored: true, deep: true }),
-        b({ id: 'f2', dow: 3, position: 1, title: 'Fork errand', cat: 'life', startMin: 0, durMin: 45 }),
+        b({ id: 'f2', dow: 3, position: 1, title: 'Fork errand', cat: 'life', startMin: 720, durMin: 45 }),
       ],
     }
     const day = planForDate({ ...input, dayForks }, '2026-07-16', todayIso)
     expect(day.source).toBe('fork')
     expect(day.items.map((i) => i.blockId)).toEqual(['f1', 'f2']) // not 'anchor'/'chain'
     expect(day.items.map((i) => i.entryId)).toEqual([null, null])
-    // fork blocks get the same resolve() re-flow: anchored pin, then chained
+    // fork blocks render at their own concrete starts, like every other day
     expect(day.items.map((i) => i.start)).toEqual([600, 720])
     expect(day.items[0]).toMatchObject({ title: 'Fork deep block', cat: 'thesis', deep: true, durMin: 120, anchored: true })
   })
@@ -949,24 +943,13 @@ describe('planForDate', () => {
     expect(day.items[2]).toMatchObject({ entryId: 'o1', blockId: null, title: 'Sprint task', cat: 'thesis', durMin: 30, anchored: false })
   })
 
-  it('re-flows an unanchored one-off landing mid-projection — chained, no overlap', () => {
-    // one-off nominally at 10:00, inside the anchor block (09:00–10:30)
+  it('a one-off landing mid-projection sorts in at its own start (no reflow)', () => {
+    // one-off at 10:00, between the anchor (09:00–10:30) and chain (10:30)
     const day = planForDate({ blocksByDow, logEntries: [...logEntries, oneOff({ startMin: 600 })] }, '2026-07-16', todayIso)
     expect(day.items.map((i) => i.key)).toEqual(['block:anchor', 'entry:o1', 'block:chain'])
-    // chains off the anchor's end; the chained Template block re-flows after it
-    expect(day.items.map((i) => i.start)).toEqual([540, 630, 660])
+    // each keeps its own concrete start; nothing is pushed
+    expect(day.items.map((i) => i.start)).toEqual([540, 600, 630])
     expect(day.items.every((i) => !i.conflict)).toBe(true)
-  })
-
-  it('an anchored one-off overrun by the projection is pushed down and flagged', () => {
-    const day = planForDate(
-      { blocksByDow, logEntries: [...logEntries, oneOff({ startMin: 600, anchored: true })] },
-      '2026-07-16',
-      todayIso,
-    )
-    expect(day.items.map((i) => i.key)).toEqual(['block:anchor', 'entry:o1', 'block:chain'])
-    expect(day.items[1].start).toBe(630) // pin at 10:00 not honored — pushed to the anchor's end
-    expect(day.items[1].conflict).toBe(true)
   })
 
   it('a one-off on an empty future day is the whole plan', () => {
@@ -991,7 +974,7 @@ describe('planForDate', () => {
     const dayForks = {
       '2026-07-16': [
         b({ id: 'f1', dow: 3, position: 0, title: 'Fork deep block', cat: 'thesis', startMin: 600, durMin: 120, anchored: true, deep: true }),
-        b({ id: 'f2', dow: 3, position: 1, title: 'Fork errand', cat: 'life', startMin: 0, durMin: 45 }),
+        b({ id: 'f2', dow: 3, position: 1, title: 'Fork errand', cat: 'life', startMin: 720, durMin: 45 }),
       ],
     }
     const day = planForDate(
@@ -1023,11 +1006,11 @@ describe('nextOneOffStart', () => {
   const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
   blocksByDow[3] = [
     b({ id: 'anchor', dow: 3, position: 0, startMin: 540, durMin: 90, anchored: true }),
-    b({ id: 'chain', dow: 3, position: 1, startMin: 0, durMin: 30 }),
+    b({ id: 'chain', dow: 3, position: 1, startMin: 630, durMin: 30 }),
   ]
   const logEntries: LogEntry[] = [
     entry({ id: 't1', onDate: todayIso, text: 'Live block', startMin: 480, durMin: 60, state: 'open', position: 0 }),
-    entry({ id: 't2', onDate: todayIso, text: 'Chained today', startMin: 0, durMin: null, state: 'open', position: 1 }),
+    entry({ id: 't2', onDate: todayIso, text: 'Later today', startMin: 540, durMin: null, state: 'open', position: 1 }),
   ]
   const input = { blocksByDow, logEntries }
 
@@ -1056,7 +1039,7 @@ describe('scheduleSlot', () => {
   const blocksByDow: Block[][] = Array.from({ length: 7 }, () => [])
   blocksByDow[3] = [
     b({ id: 'anchor', dow: 3, position: 0, startMin: 540, durMin: 90, anchored: true }),
-    b({ id: 'chain', dow: 3, position: 1, startMin: 0, durMin: 30 }),
+    b({ id: 'chain', dow: 3, position: 1, startMin: 630, durMin: 30 }),
   ]
 
   it('chains the start after the day and positions after that date’s entries', () => {

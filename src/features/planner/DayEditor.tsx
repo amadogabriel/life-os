@@ -101,7 +101,7 @@ export function DayEditor({
             items={blocks}
             buckets={data.buckets}
             onSetMins={(id, mins) => updateBlock(id, { durMin: mins })}
-            onSetStart={(id, startMin) => updateBlock(id, { startMin, anchored: true })}
+            onSetStart={(id, startMin) => updateBlock(id, { startMin })}
             onReorder={(ids) => reorderBlocks(ids)}
             onRemove={(id) => removeBlock(id)}
             onTitleClick={editBlock}

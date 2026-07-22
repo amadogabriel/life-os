@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { PlannerActions, PlannerData } from '../../lib/queries/planner'
-import { fmt, parseTime, resolve, viewedEntries } from '../../lib/planner'
+import { fmt, parseTime, viewedEntries } from '../../lib/planner'
 import { Modal } from '../../components/Modal'
 
 /** Edits one entry on a day's plan timeline — today's live plan, a dated
@@ -57,15 +57,9 @@ export function TodayEntryModal({
   const [bucketId, setBucketId] = useState(entry?.bucketId ?? '')
   const [habitId, setHabitId] = useState(entry?.habitId ?? '')
   const [dur, setDur] = useState(entry?.durMin ?? 30)
-  const [anchored, setAnchored] = useState(entry?.anchored ?? false)
-  // Past entries are frozen (no reflow, #25): the stored start IS the
-  // rendered start, so no `resolve()`-based chase is needed for the default.
-  const resolvedStart = past
-    ? (entry?.startMin ?? 0)
-    : index >= 0
-      ? resolve(items.map((e) => ({ ...e, startMin: e.startMin ?? 0, durMin: e.durMin ?? 30 })))[index].start
-      : 0
-  const [start, setStart] = useState(fmt(entry?.anchored ? (entry.startMin ?? 0) : resolvedStart))
+  // Every entry carries its own concrete start (ADR-0007) — the stored start IS
+  // the rendered start, live or past, so it's directly editable.
+  const [start, setStart] = useState(fmt(entry?.startMin ?? 0))
 
   if (!entry) return null
 
@@ -78,9 +72,8 @@ export function TodayEntryModal({
       cat: bucket?.cat ?? 'open',
       text: title.trim() || '(untitled)',
       durMin: Math.max(5, dur || 30),
-      anchored,
       ...(!entry.blockId && { habitId: habitId || null }),
-      ...(anchored && { startMin: parseTime(start) }),
+      startMin: parseTime(start),
     })
     onSaved?.(entry.id)
     onClose()
@@ -158,13 +151,9 @@ export function TodayEntryModal({
         )}
       </div>
       <div className="field">
-        <label>Fixed start</label>
-        <input type="time" step={300} value={start} disabled={!anchored} onChange={(e) => setStart(e.target.value)} />
+        <label>Start</label>
+        <input type="time" step={300} value={start} onChange={(e) => setStart(e.target.value)} />
       </div>
-      <label className="check">
-        <input type="checkbox" checked={anchored} onChange={(e) => setAnchored(e.target.checked)} /> 📌
-        Fixed start time (anchor — won't shift)
-      </label>
       {past && (entry.state === 'dropped' || entry.state === 'migrated') && (
         <div className="hint" style={{ padding: 0, margin: '10px 0 0' }}>
           {entry.state === 'dropped' ? 'Dropped that day.' : 'Migrated forward that day.'}
