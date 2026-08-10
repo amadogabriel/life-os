@@ -11,8 +11,8 @@ evenings total for screens + a live coding round each. Use the positioning
 one-pager verbatim for the "about" fields.
 
 **Application summary (≤ 400 chars):**
-> Senior full-stack/data engineer (TypeScript, React, Postgres, CI/CD) at a
-> central bank, finishing an MS in Financial Engineering. I build boring,
+> Senior full-stack/data engineer (TypeScript, React, Postgres, CI/CD)
+> embedded at a central bank, finishing an MS in Financial Engineering. I build boring,
 > reliable systems for data-heavy products: schema design, query performance,
 > pipelines, and the DevOps around them. Part-time (8–10 h/wk), async-first,
 > documentation-heavy. Public flagship: github.com/amadogabriel/life-os.
@@ -22,11 +22,11 @@ the measure-theory brain is overkill — do one warm-up evening, no more.
 
 ## 2. Upwork / Contra profile
 
-**Title:** Senior Backend & Data Engineer — Postgres · TypeScript · CI/CD (Central-bank day job)
+**Title:** Senior Backend & Data Engineer — Postgres · TypeScript · CI/CD (day job embedded at a central bank)
 
 **Overview:**
-> I'm a senior engineer at a central bank, available 8–10 hrs/week for one
-> retainer client. What you get: production-grade backend and data work —
+> I'm a senior engineer embedded at a central bank, available 8–10 hrs/week
+> for one retainer client. What you get: production-grade backend and data work —
 > Postgres schema design and rescue, TypeScript/React features, ETL, CI/CD
 > pipelines — delivered async with documentation your next hire can read.
 >
@@ -36,15 +36,16 @@ the measure-theory brain is overkill — do one warm-up evening, no more.
 > pricing/risk/analytics features land in one iteration, not three.
 >
 > I keep one client at a time and decline the second — you get the whole
-> allocation. Compliance note: my employer authorization excludes financial
-> institutions under Philippine supervision; everyone else, let's talk.
+> allocation. Compliance note: as a conflict screen for my day role, I don't
+> take clients under Philippine financial supervision; everyone else, let's
+> talk.
 
 **Rate on platform:** $55/hr (platforms bill 20–30% under direct — hold the line).
 
 ## 3. LinkedIn flip (same day)
 
-- Headline: "Engineer @ central bank · MSFE (in progress) · fractional
-  backend/data engineering for data-heavy SaaS — 1 retainer slot"
+- Headline: "Engineer embedded @ a central bank · MSFE (in progress) ·
+  fractional backend/data engineering for data-heavy SaaS — 1 retainer slot"
 - Turn on "providing services"; About section = first two paragraphs of the
   Upwork overview.
 - One launch post: what I ship, one slot, link to repo. No follow-up content

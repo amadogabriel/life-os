@@ -2,12 +2,13 @@
 
 ## The pitch
 
-**Senior software engineer at a central bank, moonlighting for teams that need
-their data and infrastructure handled like money depends on it.**
+**Senior software engineer embedded at a central bank, moonlighting for teams
+that need their data and infrastructure handled like money depends on it.**
 
-- 8+ years shipping production systems; currently engineering at the Bangko
-  Sentral ng Pilipinas (Philippine central bank): DevOps, internal tooling,
-  document/process verification systems.
+- Years shipping production systems; currently a contract engineer embedded
+  at the Bangko Sentral ng Pilipinas (Philippine central bank): DevOps,
+  internal tooling, document/process verification systems. ("Embedded
+  contractor" is the honest phrasing — use it whenever employment comes up.)
 - Finishing an **MS in Financial Engineering** (WorldQuant University) and a
   research thesis (parallel computing) — comfortable from SQL to stochastic
   calculus.
@@ -38,16 +39,18 @@ pipeline/ETL work, CI/CD and DevOps hardening, or quant-flavored features
 Floor: **never below $45/hr.** Capacity: **one retainer client** (max 10 h/wk).
 The scarcity is real (day job + thesis) — say so; it reads as seniority.
 
-## Hard boundaries (compliance — non-negotiable)
+## Hard boundaries (prudence + NDA — non-negotiable)
 
-1. No BSP-supervised or BSP-licensed institutions, their affiliates, or PH
-   government suppliers/bidders. Screen every lead against this first.
-2. No procurement-related work of any kind; nothing touching supervisory or
-   non-public information.
-3. Work only outside official hours (PHT evenings/weekends); ≤8 h/wk until
-   clearance says otherwise.
-4. Every engagement letter discloses: "Consultant is employed by a government
-   financial regulator; this engagement has been authorized and excludes any
-   entity under that regulator's supervision."
-5. Kill switch: if BSP revokes authority, contracts terminate with 30 days'
-   notice — put the clause in the SOW.
+1. No BSP-supervised or BSP-licensed institutions or their affiliates as
+   clients while deployed at the BSP. Screen every lead against this first.
+2. Nothing touching what the deployment exposes you to — procurement,
+   internal systems, non-public information. The deployment NDA binds
+   regardless of who the client is.
+3. Work only outside working hours (PHT evenings/weekends); ≤8 h/wk as a
+   capacity choice that protects the day job and the thesis.
+4. Every engagement letter discloses: "Consultant's day role is deployed at a
+   financial regulator; this engagement excludes any entity under that
+   regulator's supervision and uses no resources or information from that
+   role."
+5. Kill switch: if employment or confidentiality obligations ever require it,
+   contracts terminate with 30 days' notice — the clause lives in the SOW.

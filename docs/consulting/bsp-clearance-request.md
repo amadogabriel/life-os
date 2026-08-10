@@ -1,65 +1,72 @@
-# BSP outside-employment clearance — request letter (draft)
+# Side-work gate: LSERV contract check (+ optional permission letter)
 
-**Status: DRAFT — the gate for all of Engine B. Nothing publishes before this is granted.**
+**Status: the gate for Engine B.** Superseded version of this doc assumed Jon
+was a BSP (government) employee — he is an **LSERV employee deployed at the
+BSP**, so CSC moonlighting rules, agency-head clearance, and SALN do not
+apply. The gate is now a one-evening document check.
 
-Filing notes: route per BSP internal rules — typically through your immediate
-supervisor and department head to HR (Office of Human Resources) for the
-Governor's/authorized official's approval; ask HR whether they want their own
-form instead of a letter, and whether OGC sign-off is needed. Legal basis to
-cite: CSC Memorandum Circular No. 17, s. 2006; RA 6713; the BSP Code of Ethics.
-Replace all [bracketed] fields.
+## Step 1 — read two documents
+
+1. **LSERV employment contract** — look for: exclusivity / "shall not engage
+   in other employment or business", moonlighting, non-compete, or
+   conflict-of-interest clauses, and anything requiring employer consent for
+   outside income.
+2. **BSP-deployment confidentiality undertaking / NDA** — binds regardless of
+   employer; note what it covers (systems, data, work products).
+
+Record the result on issue #44:
+- **No restrictive clause** → Engine B is unblocked. Publish day can be
+  scheduled immediately.
+- **Clause exists** → send the permission letter below to LSERV HR (private
+  employer, ordinary HR request — a far lower bar than a government
+  clearance). Record the reply on #44.
+
+## Step 2 (only if a clause exists) — permission letter to LSERV
 
 ---
 
 [Date]
 
-**[Name of Department Head]**
-[Position], [Department]
-Bangko Sentral ng Pilipinas
+**[Name]**, Human Resources
+LSERV Corporation
 
-Through: **[Immediate Supervisor's Name]**, [Position]
-
-Subject: **Request for Authority to Engage in Limited Outside Work (Part-Time Software Consulting)**
+Subject: **Notice/Request re: part-time independent software work outside working hours**
 
 Dear [Sir/Madam]:
 
-I respectfully request written authority to engage in limited, part-time
-software development consulting for private clients, pursuant to CSC
-Memorandum Circular No. 17, s. 2006 and the BSP Code of Ethics.
+I write regarding my intention to take on limited, part-time software
+development work for private clients, performed entirely outside my working
+hours and my deployment duties.
 
-The proposed engagement is subject to the following self-imposed conditions,
-which I undertake to observe strictly:
+To keep everything squarely compliant with my employment agreement, I confirm
+the following conditions, which I will observe strictly:
 
-1. **Time.** All work will be performed entirely outside official working
-   hours, and will not exceed eight (8) hours per week.
-2. **Resources.** No BSP time, equipment, systems, data, or other government
-   resources will be used in any form.
-3. **Conflict of interest.** I will not accept engagements from (a) any
-   BSP-supervised or BSP-licensed institution or its affiliates, (b) any
-   entity transacting or seeking to transact with the BSP, including
-   prospective suppliers or bidders, or (c) any engagement related to my
-   official functions. My clients will be foreign or domestic technology
-   companies outside the BSP's regulatory perimeter, engaged in general
-   software development work (web applications, data engineering, and
-   development infrastructure).
-4. **Confidentiality.** No information obtained by reason of my office,
-   whether or not confidential, will be used in or disclosed through the
-   engagement.
-5. **Performance.** Should the engagement affect my official performance in
-   any way, I undertake to discontinue it immediately, and I acknowledge that
-   this authority may be revoked at any time.
+1. All work is performed outside my official working hours and will not
+   exceed eight (8) hours per week.
+2. No equipment, systems, information, or resources of LSERV or of my
+   deployment site will be used in any form, and my confidentiality
+   undertakings remain fully observed.
+3. I will not accept engagements from institutions supervised by, transacting
+   with, or seeking to transact with my deployment site, nor any engagement
+   that conflicts with my duties.
+4. My performance and availability under my employment agreement remain
+   unaffected; I will discontinue the outside work if it ever interferes.
 
-I will register the corresponding professional income with the Bureau of
-Internal Revenue and declare it in my SALN.
+If this requires your formal approval under my employment agreement, I
+respectfully request it; otherwise, please treat this letter as a
+transparency notice for my 201 file.
 
-I respectfully submit this request for your kind consideration and approval.
-
-Respectfully yours,
+Respectfully,
 
 **[Full Name]**
-[Position], [Department/Office]
+[Position], deployed at [deployment site/office]
 
 ---
 
-Attachments HR may ask for: brief description of the consulting services,
-latest performance rating, draft schedule showing no overlap with official hours.
+## Prudence rules that stay regardless of contract
+
+- No BSP-supervised/licensed institutions as clients while deployed there.
+- Nothing touching what the deployment exposes you to (systems, documents,
+  procurement).
+- These aren't legal requirements anymore — they're what keeps the deployment,
+  the NDA, and the client list all clean at once.

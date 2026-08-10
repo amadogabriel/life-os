@@ -20,28 +20,28 @@ what makes the whole thing run without Jon steering.
 
 ---
 
-## Constraint zero: you work at the BSP
+## Constraint zero: employment reality (LSERV, deployed at BSP)
 
-Everything is gated by civil-service and BSP rules. The good news is the gate
-is well mapped:
+Jon is an **LSERV (service contractor) employee deployed at the BSP**, not a
+civil servant. That rewrites the compliance picture:
 
-- **Passive investments need no permission.** Stocks, bonds, MP2, UITFs —
-  allowed without clearance as long as there's no management role or conflict
-  of interest. Engine A starts *today*.
-- **Outside work needs written permission** from the agency head under
-  CSC MC No. 17, s. 2006 (moonlighting) — conditions: outside official hours,
-  no government resources, no conflict of interest, no performance impact.
-  Entrepreneurial activity is similarly covered by CSC MC No. 32, s. 1993.
-  BSP additionally has its own Code of Ethics — route the request through
-  BSP HR / the Office of the General Counsel before touching Engine B or C.
-- **Conflict-of-interest screen**: no clients that are BSP-supervised
-  institutions (banks, EMI/fintechs licensed in the PH) and nothing touching
-  procurement or supervisory information. Practical consequence: **target
-  foreign clients in non-BSP-supervised domains** (dev tooling, data
-  engineering, general SaaS).
-- One-shot worst case: if clearance is denied, Engines B and C close, Engine A
-  still finishes the job (slower), and the career lever (below) becomes the
-  main accelerant.
+- **CSC moonlighting rules, agency-head clearance, and SALN do not apply** —
+  those govern government officials/employees, and an agency contractor is a
+  private employee of the agency. There is no government permission gate.
+- **The real gates are two documents:** (1) the **LSERV employment contract**
+  — check for exclusivity/moonlighting/non-compete clauses; if one exists,
+  written permission from LSERV HR is a far lower bar than a government
+  clearance; if none exists, no permission is needed at all; and (2) the
+  **confidentiality/NDA undertaking** signed for the BSP deployment — it binds
+  regardless of employer.
+- **Conflict screen stays by prudence, not law**: while deployed inside the
+  BSP, still decline BSP-supervised institutions as clients and anything
+  touching what the deployment exposes you to. It protects the deployment and
+  reads well to every other client.
+- **The handcuffs I designed around don't exist.** No tenure, no GSIS ladder,
+  no civil-service career cost to leaving — which makes *changing employers*
+  a fully available move, and (see the career lever below) probably the
+  single highest-EV action in this whole plan.
 
 ## Engine A — Base: automatic, guaranteed, boring (start this week)
 
@@ -92,10 +92,12 @@ churn), a fixed weekly deep block that already exists in your Template, and
 agent leverage on everything around the billable core (proposals, boilerplate,
 docs, scaffolding — Claude's job). The sequence:
 
-1. **Clearance first** (issue filed): draft request letter → BSP HR/OGC →
-   written permission. Nothing ships before this.
-2. BIR registration as a professional, elect the 8% gross option (simplest,
-   no VAT below ₱3M).
+1. **Contract check first** (issue filed): re-read the LSERV contract and the
+   BSP-deployment NDA. Exclusivity clause → one permission letter to LSERV
+   HR; no clause → Engine B is unblocked immediately. Nothing publishes
+   before this check is recorded.
+2. BIR registration as a professional (mixed-income earner), elect the 8%
+   gross option (simplest, no VAT below ₱3M).
 3. Profile assets (agent-built, you approve): one-pager, portfolio page
    anchored on Life OS + procurement-verifier-shaped work (sanitized), Upwork/
    Contra profile as channel #2, direct outreach to 10 shortlisted teams as
@@ -113,13 +115,20 @@ Candidate list (pick at most one, later): a paid template/starter derived from
 this stack, a niche tool for the WQU/quant-student market, or written
 material from the thesis. Treated strictly as upside, never as the plan.
 
-## The quiet fourth lever — career option value
+## The fourth lever — and now probably the biggest: change employers
 
-Not part of the ₱1M mechanics, but it dominates them: finishing the **WQU
-MSFE + thesis** re-prices your base salary at the next move (quant/fintech
-roles pay multiples of a government scale). Every peso of raise flows straight
-into Engine A's monthly number. The plan therefore *protects* those study
-blocks — Engine B is capped at 8 h/wk precisely so it never eats the thesis.
+As a private contractor employee there is no career cost to leaving, and the
+gap between a manpower-agency salary and a **remote international full-time
+role** (US/EU/SG companies hiring PH-based seniors at ₱150k–₱350k+/mo) is
+larger than anything Engine B can bill part-time. One successful job switch
+can add **₱1M+/yr of income by itself** — with less total effort than running
+a consultancy beside a day job. The same launch-kit assets (positioning,
+portfolio, profiles) serve both paths; the difference is applying to jobs vs.
+pitching retainers. Run them in parallel and take whichever lands first.
+
+Finishing the **WQU MSFE + thesis** multiplies this lever (quant/fintech
+roles), so the plan still *protects* those study blocks — Engine B stays
+capped at 8 h/wk precisely so it never eats the thesis.
 
 ---
 
@@ -130,7 +139,7 @@ blocks — Engine B is capped at 8 h/wk precisely so it never eats the thesis.
 | Floor | A only, ₱25k/mo | ~36 months |
 | Base case | A (₱25k/mo) + B lands by month 3 | **~11 months** |
 | Stretch | A (₱40k/mo) + B at $60/hr avg | ~8 months |
-| Clearance denied | A (₱40k/mo, forced savings up) + career lever | ~24 months |
+| Contract forbids side work | A + job-switch lever (remote intl. role) | ~12–18 months |
 
 ## The system (what "least babysitting" actually means)
 
@@ -148,10 +157,12 @@ blocks — Engine B is capped at 8 h/wk precisely so it never eats the thesis.
 ## First moves (filed as issues)
 
 1. **Enroll MP2 + set payday auto-transfer** — human, ~30 min, this week.
-2. **File BSP outside-employment clearance** — human files; agent drafts the
-   letter on request.
-3. **Build consulting profile assets** — agent, blocked on #2.
-4. **BIR registration, 8% option** — human, blocked on #2.
+2. **Check LSERV contract + BSP NDA for side-work clauses** — human, one
+   evening; agent drafts the LSERV permission letter if a clause exists.
+3. **Build consulting profile assets** — agent, done; publishing blocked on #2.
+4. **BIR registration, 8% option** — human, blocked on first paid work.
+5. **Remote job-switch track** — agent drafts CV/applications; runs in
+   parallel with the consulting track.
 
 ## Sources
 

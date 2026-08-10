@@ -25,8 +25,9 @@ Stop condition: **first signed retainer → pause all outreach.** Depth over chu
 Subject: `fractional senior backend help — 8h/wk`
 
 > Hi [Name] — saw [specific thing: job post / launch / stack mention]. I'm a
-> senior engineer at a central bank (Postgres, TypeScript, CI/CD, finishing an
-> MS in Financial Engineering) with one 8–10 h/wk retainer slot open, and
+> senior engineer embedded at a central bank (Postgres, TypeScript, CI/CD,
+> finishing an MS in Financial Engineering) with one 8–10 h/wk retainer slot
+> open, and
 > [company]'s [specific problem: data pipeline / query performance / release
 > automation] is exactly the shape of work I do best.
 >
@@ -50,9 +51,9 @@ step in writing before hanging up (4).
 Scope: up to N h/wk, async, [areas]. Fee: $[X]/mo, invoiced monthly in
 advance, 8% BIR receipts. Comms: async written, 24–48h response, no standing
 meetings before 9pm PHT. IP: work-for-hire on payment. Termination: 30 days'
-notice; immediate if consultant's government authorization is revoked.
-Exclusions: entities under Philippine financial supervision; procurement-
-related work.
+notice; immediate if consultant's employment or confidentiality obligations
+require it. Exclusions: entities under Philippine financial supervision;
+procurement-related work.
 
 ## Pipeline math (why this converges)
 
